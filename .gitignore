@@ -1,0 +1,18 @@
+# Dependencies (restored via `npm install`)
+node_modules/
+
+# Runtime artifacts
+recordings/
+*.log
+npm-debug.log*
+
+# OS / editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+
+# Environment / secrets (for when real SSO/IES creds are added)
+.env
+.env.*
+!.env.example

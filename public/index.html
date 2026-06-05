@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>NYS Virtual Waiting Room</title>
+  <!-- New York State Design System (NYSDS) — design tokens + web components.
+       We load the TOKENS build (variables/themes), NOT the "full" build: the
+       full build resets every raw element (*, body, h1-3, a, table…) and fights
+       the custom dashboard layout. Tokens give us official colors/fonts/theming
+       for the components and our own CSS, with no global overrides. -->
+  <link rel="stylesheet" href="/nysds/styles/nysds.min.css" />
+  <!-- Self-contained UMD build (bundles Lit). The ESM build uses bare "lit"
+       imports the browser can't resolve without a bundler, so use the UMD one. -->
+  <script defer src="/nysds/components/nysds.js"></script>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <!-- ============ LOGIN ============ -->
+  <section id="login" class="login-screen" aria-labelledby="login-title">
+    <div class="login-card">
+      <div class="seal" aria-hidden="true">NYS</div>
+      <h1 id="login-title">Virtual Waiting Room</h1>
+      <p class="login-sub">NYS ITS · Integrated Eligibility System (IES) · Fair Hearings</p>
+
+      <label for="user-select" class="field-label">Sign in via ITS Identity (SSO)</label>
+      <select id="user-select" class="select" aria-describedby="login-hint"></select>
+      <p id="login-hint" class="hint">Demo SSO — your role &amp; permissions are derived from the IAM assertion.</p>
+
+      <nys-button id="login-btn" fullWidth label="Sign In via SSO" prefixIcon="lock_filled"></nys-button>
+
+      <details class="sso-note">
+        <summary>About authentication</summary>
+        <p>In production this screen is replaced by ITS IAM using <strong>SAML 2.0 / OAuth / OpenID Connect</strong> single sign-on. Role and party-of-interest claims flow from the calling IES application.</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============ APP SHELL ============ -->
+  <div id="app" class="app hidden">
+    <!-- Official NYS agency header (single, clean branding bar) -->
+    <nys-globalheader
+      appName="Virtual Waiting Room"
+      agencyName="Integrated Eligibility System · OTDA · DOH · OCFS"
+      homepageLink="#"
+      nysLogo></nys-globalheader>
+
+    <header class="topbar" role="banner">
+      <div class="topbar-status">
+        <span id="conn-status" class="conn" title="Live connection">● Live</span>
+        <span id="clock" class="clock" aria-live="off"></span>
+      </div>
+      <div class="topbar-right">
+        <div class="who">
+          <span id="who-name" class="who-name"></span>
+          <span id="who-role" class="badge badge-role"></span>
+        </div>
+        <nys-button id="reset-btn" variant="outline" inverted size="sm" label="Reset" prefixIcon="refresh" title="Reset demo data"></nys-button>
+        <nys-button id="logout-btn" variant="outline" inverted size="sm" label="Sign out" prefixIcon="close"></nys-button>
+      </div>
+    </header>
+
+    <main id="main" class="content" role="main">
+      <!-- Toolbar: search + sort (spec §3, §4) -->
+      <div id="toolbar" class="toolbar">
+        <div class="toolbar-left">
+          <div class="search-wrap">
+            <nys-icon name="search" size="sm" class="search-icon" aria-hidden="true"></nys-icon>
+            <input id="search" class="input has-icon" type="search" placeholder="Search hearing #, name, type, agency…" aria-label="Search hearings" />
+          </div>
+          <select id="sort" class="select select-sm" aria-label="Sort hearings">
+            <option value="time">Sort: Scheduled time</option>
+            <option value="appellant">Sort: Appellant name</option>
+            <option value="status">Sort: Waiting room status</option>
+            <option value="agency">Sort: Agency</option>
+          </select>
+          <select id="filter-status" class="select select-sm" aria-label="Filter by status">
+            <option value="">All statuses</option>
+          </select>
+        </div>
+        <div id="view-title" class="view-title"></div>
+      </div>
+
+      <div id="board" class="board" aria-live="polite"></div>
+    </main>
+
+    <!-- Audit / reporting drawer (spec §10, §11) -->
+    <aside id="audit-drawer" class="audit-drawer collapsed" aria-label="Audit and activity log">
+      <button id="audit-toggle" class="audit-toggle" aria-expanded="false">Activity &amp; Audit Log</button>
+      <div class="audit-body">
+        <div id="report-strip" class="report-strip"></div>
+        <ul id="audit-list" class="audit-list"></ul>
+      </div>
+    </aside>
+  </div>
+
+  <!-- ============ IN-HOUSE CONFERENCE OVERLAY ============ -->
+  <div id="conf" class="conf hidden" role="dialog" aria-label="Virtual hearing conference">
+    <div class="conf-bar conf-top">
+      <div class="conf-title" id="conf-title"></div>
+      <div class="conf-top-right">
+        <span id="conf-rec" class="rec hidden" aria-live="polite">● REC</span>
+        <span id="conf-count" class="conf-count"></span>
+        <span class="conf-brand">NYS IES · In-house Conferencing</span>
+      </div>
+    </div>
+
+    <div class="conf-main">
+      <div class="conf-stage" id="conf-stage" aria-label="Participant video"></div>
+
+      <aside id="conf-chat" class="conf-chat hidden" aria-label="In-hearing chat">
+        <div class="conf-chat-head">In-hearing Chat</div>
+        <ul class="conf-chat-msgs" id="conf-chat-msgs"></ul>
+        <form class="conf-chat-form" id="conf-chat-form">
+          <input id="conf-chat-input" class="input" placeholder="Type a message…" autocomplete="off" aria-label="Chat message" />
+          <button class="btn btn-primary btn-sm" type="submit">Send</button>
+        </form>
+      </aside>
+    </div>
+
+    <div class="conf-bar conf-controls">
+      <button id="c-mic" class="cbtn" type="button"><span>Mute</span></button>
+      <button id="c-cam" class="cbtn" type="button"><span>Stop Video</span></button>
+      <button id="c-share" class="cbtn" type="button"><span>Share</span></button>
+      <button id="c-chat" class="cbtn" type="button"><span>Chat</span></button>
+      <button id="c-rec" class="cbtn hidden" type="button"><span>Record</span></button>
+      <button id="c-leave" class="cbtn cbtn-leave" type="button"><span>Leave</span></button>
+    </div>
+  </div>
+
+  <!-- Toast container -->
+  <div id="toasts" class="toasts" aria-live="assertive"></div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="app.js"></script>
+  <script src="conference.js"></script>
+</body>
+</html>

@@ -1,0 +1,26 @@
+{
+  "name": "nys-virtual-waiting-room",
+  "version": "1.0.0",
+  "description": "NYS ITS Virtual Waiting Room (VWR) — manages flow, attendance, and waiting time for Parties of Interest in virtual fair hearings.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "keywords": [
+    "nys",
+    "its",
+    "virtual-hearing",
+    "waiting-room",
+    "cisco-webex",
+    "fair-hearing"
+  ],
+  "author": "Hackathon Team",
+  "license": "MIT",
+  "dependencies": {
+    "@nysds/components": "1.18.3",
+    "@nysds/styles": "1.18.3",
+    "express": "4.22.2",
+    "socket.io": "4.8.3"
+  }
+}
