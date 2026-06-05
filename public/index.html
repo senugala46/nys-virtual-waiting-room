@@ -16,15 +16,22 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Global language selector (globe), top-left, on every screen -->
+  <div id="lang-widget" class="lang-widget">
+    <button id="lang-btn" class="lang-btn" type="button" aria-haspopup="true" aria-expanded="false" data-i18n-title="lang.select" title="Select language">
+      <nys-icon name="language" size="sm" aria-hidden="true"></nys-icon>
+      <span id="lang-current">English</span>
+      <nys-icon name="chevron_down" size="xs" aria-hidden="true"></nys-icon>
+    </button>
+    <ul id="lang-menu" class="lang-menu hidden" role="menu" aria-label="Language"></ul>
+  </div>
+
   <!-- ============ LOGIN ============ -->
   <section id="login" class="login-screen" aria-labelledby="login-title">
     <div class="login-card">
       <div class="seal" aria-hidden="true">NYS</div>
       <h1 id="login-title" data-i18n="app.title">Virtual Waiting Room</h1>
       <p class="login-sub" data-i18n="login.subtitle">NYS ITS · Integrated Eligibility System (IES) · Fair Hearings</p>
-
-      <label for="lang-login" class="field-label" data-i18n="common.language">Language</label>
-      <select id="lang-login" class="select lang-select" aria-label="Language"></select>
 
       <label for="user-select" class="field-label" data-i18n="login.signinVia">Sign in via ITS Identity (SSO)</label>
       <select id="user-select" class="select" aria-describedby="login-hint"></select>
@@ -54,7 +61,6 @@
         <span id="clock" class="clock" aria-live="off"></span>
       </div>
       <div class="topbar-right">
-        <select id="lang-top" class="lang-select lang-select-top" aria-label="Language"></select>
         <div class="who">
           <span id="who-name" class="who-name"></span>
           <span id="who-role" class="badge badge-role"></span>

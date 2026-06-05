@@ -34,9 +34,8 @@
     ROLES = data.roles;
     directoryUsers = data.directory;
 
-    // i18n: enable AI-backed languages if the server has a model configured
-    if (window.VWRi18n) window.VWRi18n.init({ aiEnabled: !!data.aiEnabled });
-    setupLanguageSwitchers();
+    if (window.VWRi18n) window.VWRi18n.init();
+    setupLanguageMenu();
 
     refreshDirectoryOptions();
     refreshStatusFilter();
@@ -56,24 +55,46 @@
     fs.value = cur;
   }
 
-  function setupLanguageSwitchers() {
-    const opts = window.VWRi18n.LANGS
-      .map((l) => `<option value="${l.code}">${l.name}</option>`).join('');
-    ['#lang-login', '#lang-top'].forEach((sel) => {
-      const el = $(sel);
-      if (!el) return;
-      el.innerHTML = opts;
-      el.value = window.VWRi18n.getLang();
-      el.onchange = async () => {
-        await window.VWRi18n.setLang(el.value);
-        // keep both switchers in sync
-        ['#lang-login', '#lang-top'].forEach((s) => { const e = $(s); if (e) e.value = el.value; });
-      };
-    });
+  function updateLangCurrent() {
+    const l = window.VWRi18n.LANGS.find((x) => x.code === window.VWRi18n.getLang());
+    const cur = $('#lang-current');
+    if (cur) cur.textContent = l ? l.name : 'English';
+  }
+
+  // Globe language menu (top-left), styled like the NYS Child Support selector.
+  function setupLanguageMenu() {
+    const btn = $('#lang-btn'), menu = $('#lang-menu');
+    if (!btn || !menu) return;
+    const cur = () => window.VWRi18n.getLang();
+    menu.innerHTML = window.VWRi18n.LANGS.map((l) =>
+      `<li role="menuitemradio" data-lang="${l.code}" lang="${l.code}" dir="${l.dir}" aria-checked="${l.code === cur()}" tabindex="0">${l.name}</li>`
+    ).join('');
+    updateLangCurrent();
+
+    const close = () => { menu.classList.add('hidden'); btn.setAttribute('aria-expanded', 'false'); };
+    const pick = (code) => {
+      window.VWRi18n.setLang(code);                 // synchronous — applies instantly
+      menu.querySelectorAll('li').forEach((x) => x.setAttribute('aria-checked', String(x.dataset.lang === code)));
+      updateLangCurrent();
+      close();
+    };
+
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const open = menu.classList.toggle('hidden') === false;
+      btn.setAttribute('aria-expanded', String(open));
+    };
+    menu.onclick = (e) => { const li = e.target.closest('[data-lang]'); if (li) pick(li.dataset.lang); };
+    menu.onkeydown = (e) => {
+      const li = e.target.closest('[data-lang]');
+      if (li && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pick(li.dataset.lang); }
+    };
+    document.addEventListener('click', () => { if (!menu.classList.contains('hidden')) close(); });
   }
 
   // Re-localize everything when the language changes.
   window.VWRonLangChange = () => {
+    updateLangCurrent();
     refreshDirectoryOptions();
     refreshStatusFilter();
     if (session) { $('#who-role').textContent = roleLabel(session.role); render(); }

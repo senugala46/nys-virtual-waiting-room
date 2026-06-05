@@ -970,15 +970,22 @@ module.exports = { translate, translateBatch, summarize, LANGS, HAS_AI };
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- Global language selector (globe), top-left, on every screen -->
+  <div id="lang-widget" class="lang-widget">
+    <button id="lang-btn" class="lang-btn" type="button" aria-haspopup="true" aria-expanded="false" data-i18n-title="lang.select" title="Select language">
+      <nys-icon name="language" size="sm" aria-hidden="true"></nys-icon>
+      <span id="lang-current">English</span>
+      <nys-icon name="chevron_down" size="xs" aria-hidden="true"></nys-icon>
+    </button>
+    <ul id="lang-menu" class="lang-menu hidden" role="menu" aria-label="Language"></ul>
+  </div>
+
   <!-- ============ LOGIN ============ -->
   <section id="login" class="login-screen" aria-labelledby="login-title">
     <div class="login-card">
       <div class="seal" aria-hidden="true">NYS</div>
       <h1 id="login-title" data-i18n="app.title">Virtual Waiting Room</h1>
       <p class="login-sub" data-i18n="login.subtitle">NYS ITS · Integrated Eligibility System (IES) · Fair Hearings</p>
-
-      <label for="lang-login" class="field-label" data-i18n="common.language">Language</label>
-      <select id="lang-login" class="select lang-select" aria-label="Language"></select>
 
       <label for="user-select" class="field-label" data-i18n="login.signinVia">Sign in via ITS Identity (SSO)</label>
       <select id="user-select" class="select" aria-describedby="login-hint"></select>
@@ -1008,7 +1015,6 @@ module.exports = { translate, translateBatch, summarize, LANGS, HAS_AI };
         <span id="clock" class="clock" aria-live="off"></span>
       </div>
       <div class="topbar-right">
-        <select id="lang-top" class="lang-select lang-select-top" aria-label="Language"></select>
         <div class="who">
           <span id="who-name" class="who-name"></span>
           <span id="who-role" class="badge badge-role"></span>
@@ -1241,14 +1247,28 @@ nys-skipnav { position: relative; z-index: 1000; }
 .brand-sub { font-size: .72rem; opacity: .8; }
 .topbar-status { display: flex; align-items: center; gap: 14px; }
 
-/* Language switcher */
-.lang-select { font: inherit; }
-.lang-select-top {
-  background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.35);
-  border-radius: 8px; padding: 6px 8px; font: inherit; font-size: .85rem;
+/* Global language selector (globe), fixed top-left */
+.lang-widget { position: fixed; top: 10px; left: 14px; z-index: 500; }
+.lang-btn {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font: inherit; font-size: .85rem; font-weight: 600;
+  background: rgba(255,255,255,.16); color: #fff; border: 1px solid rgba(255,255,255,.45);
+  border-radius: 999px; padding: 6px 12px; backdrop-filter: blur(2px);
 }
-.lang-select-top option { color: #1b1b1b; }
-#lang-login { width: 100%; margin-bottom: 14px; }
+.lang-btn:hover { background: rgba(255,255,255,.28); }
+.lang-btn:focus-visible { outline: 3px solid var(--nys-gold); outline-offset: 2px; }
+.lang-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; margin: 0; padding: 6px; list-style: none;
+  background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(16,32,55,.22); min-width: 210px; max-height: 70vh; overflow: auto;
+}
+.lang-menu.hidden { display: none; }
+.lang-menu li { padding: 9px 14px; border-radius: 8px; cursor: pointer; font-size: .92rem; white-space: nowrap; }
+.lang-menu li:hover { background: var(--nys-color-theme-weaker, #eff6fb); }
+.lang-menu li[aria-checked="true"] { background: var(--nys-color-theme-weak, #cddde9); color: var(--nys-blue); font-weight: 700; }
+
+/* On the white toolbar/app the globe still sits over the blue header, so keep it light. */
+[dir="rtl"] .lang-widget { left: auto; right: 14px; }
+[dir="rtl"] .lang-menu { left: auto; right: 0; }
 
 /* RTL support (Arabic, Urdu, Yiddish) */
 [dir="rtl"] .card-meta, [dir="rtl"] .my-controls, [dir="rtl"] .officer-controls { text-align: right; }
@@ -1499,18 +1519,17 @@ body.conf-open { overflow: hidden; }
 ```js
 /* Internationalization for the VWR — NYS language-access set (12 languages + English).
  *
- * English + Spanish are baked in (offline, verified). The other 11 languages are
- * populated on demand via the AI translation service (/api/ai/translate-ui),
- * cached in localStorage. When no translation service is configured, non-baked
- * languages gracefully fall back to English rather than showing low-quality text.
+ * All languages are baked in so switching is INSTANT and works offline with no API
+ * key. English + Spanish are the most thoroughly reviewed; the other 11 cover the
+ * core appellant-facing UI (longer/secondary strings fall back to English per key).
+ * Production should replace these with NYS's official language-access translations.
  *
  * Usage: VWRi18n.t('key', {vars}). Static HTML uses [data-i18n], [data-i18n-ph],
- * [data-i18n-title]. Call VWRi18n.setLang(code) to switch.
+ * [data-i18n-title], [data-i18n-label]. Call VWRi18n.setLang(code) to switch.
  */
 (function () {
   'use strict';
 
-  // NYS statewide language-access languages (Executive Order 26.1) + English.
   const LANGS = [
     { code: 'en', name: 'English',        dir: 'ltr' },
     { code: 'es', name: 'Español',        dir: 'ltr' },
@@ -1539,8 +1558,7 @@ body.conf-open { overflow: hidden; }
       'login.signin': 'Sign In via SSO',
       'login.aboutAuth': 'About authentication',
       'login.aboutBody': 'In production this screen is replaced by ITS IAM using SAML 2.0 / OAuth / OpenID Connect single sign-on. Role and party-of-interest claims flow from the calling IES application.',
-      'common.language': 'Language',
-      'common.empty': 'No hearings match your view.',
+      'common.language': 'Language', 'common.empty': 'No hearings match your view.',
       'nav.live': 'Live', 'nav.offline': 'Offline', 'nav.reset': 'Reset', 'nav.signout': 'Sign out',
       'toolbar.search': 'Search hearing #, name, type, agency…',
       'sort.time': 'Sort: Scheduled time', 'sort.appellant': 'Sort: Appellant name',
@@ -1572,7 +1590,7 @@ body.conf-open { overflow: hidden; }
       'role.agency_witness': 'Agency Witness', 'role.interpreter': 'Interpreter',
       'role.hearing_officer': 'Hearing Officer (ALJ)', 'role.admin_staff': 'Administrative Staff',
       'role.supervisor': 'Supervisor / Clerk',
-      'mt.notice': 'Machine-translated for accessibility.',
+      'lang.select': 'Select language',
     },
     es: {
       'app.title': 'Sala de Espera Virtual',
@@ -1583,8 +1601,7 @@ body.conf-open { overflow: hidden; }
       'login.signin': 'Iniciar sesión con SSO',
       'login.aboutAuth': 'Acerca de la autenticación',
       'login.aboutBody': 'En producción, esta pantalla se reemplaza por ITS IAM mediante inicio de sesión único SAML 2.0 / OAuth / OpenID Connect. El rol y las reclamaciones de parte interesada provienen de la aplicación IES.',
-      'common.language': 'Idioma',
-      'common.empty': 'Ninguna audiencia coincide con su vista.',
+      'common.language': 'Idioma', 'common.empty': 'Ninguna audiencia coincide con su vista.',
       'nav.live': 'En vivo', 'nav.offline': 'Sin conexión', 'nav.reset': 'Reiniciar', 'nav.signout': 'Cerrar sesión',
       'toolbar.search': 'Buscar n.º de audiencia, nombre, tipo, agencia…',
       'sort.time': 'Ordenar: Hora programada', 'sort.appellant': 'Ordenar: Nombre del apelante',
@@ -1616,22 +1633,277 @@ body.conf-open { overflow: hidden; }
       'role.agency_witness': 'Testigo de la Agencia', 'role.interpreter': 'Intérprete',
       'role.hearing_officer': 'Juez de Audiencia (ALJ)', 'role.admin_staff': 'Personal Administrativo',
       'role.supervisor': 'Supervisor / Secretario',
-      'mt.notice': 'Traducción automática para accesibilidad.',
+      'lang.select': 'Seleccionar idioma',
+    },
+    zh: {
+      'app.title': '虚拟候审室', 'common.language': '语言', 'common.empty': '没有符合您视图的听证会。',
+      'nav.live': '在线', 'nav.offline': '离线', 'nav.reset': '重置', 'nav.signout': '退出',
+      'login.signinVia': '通过 ITS Identity (SSO) 登录', 'login.signin': '通过 SSO 登录',
+      'view.my': '我的听证会', 'view.assigned': '分配给我的听证会',
+      'view.oversight': '所有听证会 — 监督面板', 'view.support': '我支持的听证会',
+      'status.not_checked_in': '未签到', 'status.not_ready': '未就绪', 'status.ready': '准备就绪',
+      'status.called': '已传唤', 'status.recalled': '重新传唤', 'status.closed': '已结束',
+      'card.appellant': '上诉人', 'card.time': '时间', 'card.aid': '援助类型', 'card.disposition': '裁定',
+      'card.checkin': '签到', 'card.checkout': '签退', 'card.available': '可参加', 'card.unavailable': '暂不可参加',
+      'card.join': '加入虚拟听证会（内置视频）', 'card.participants': '参与者',
+      'card.pNotChecked': '未签到', 'card.removed': '已移除', 'card.inProgress': '进行中',
+      'card.closedNote': '此听证会已结束。', 'card.checkedIn': '您已签到。', 'card.wait': '预计等待约 {m} 分钟',
+      'card.limited': '根据您的角色，参与者详情受到限制。',
+      'officer.call': '传唤听证会', 'officer.start': '开始 / 启动会议', 'officer.close': '结束听证会',
+      'officer.recall': '重新传唤听证会', 'officer.deny': '拒绝', 'officer.reassign': '重新分配给…',
+      'officer.waiting': '正在等待至少一名参与者签到并可参加。',
+      'role.appellant': '上诉人', 'role.appellant_rep': '上诉人代表', 'role.appellant_witness': '上诉人证人',
+      'role.agency_rep': '机构代表', 'role.agency_witness': '机构证人', 'role.interpreter': '口译员',
+      'role.hearing_officer': '听证官 (ALJ)', 'role.admin_staff': '行政人员', 'role.supervisor': '主管 / 书记员',
+      'summary.title': 'AI 听证摘要', 'summary.generate': '生成', 'summary.regenerate': '重新生成',
+      'filter.all': '所有状态', 'sort.time': '排序：预定时间', 'sort.appellant': '排序：上诉人姓名',
+      'sort.status': '排序：候审状态', 'sort.agency': '排序：机构', 'lang.select': '选择语言',
+    },
+    ru: {
+      'app.title': 'Виртуальный зал ожидания', 'common.language': 'Язык', 'common.empty': 'Нет слушаний, соответствующих вашему виду.',
+      'nav.live': 'В сети', 'nav.offline': 'Не в сети', 'nav.reset': 'Сброс', 'nav.signout': 'Выйти',
+      'login.signinVia': 'Войти через ITS Identity (SSO)', 'login.signin': 'Войти через SSO',
+      'view.my': 'Мои слушания', 'view.assigned': 'Назначенные мне слушания',
+      'view.oversight': 'Все слушания — Панель надзора', 'view.support': 'Слушания, которые я поддерживаю',
+      'status.not_checked_in': 'Не отмечен', 'status.not_ready': 'Не готово', 'status.ready': 'Готово к слушанию',
+      'status.called': 'Вызвано', 'status.recalled': 'Повторно вызвано', 'status.closed': 'Закрыто',
+      'card.appellant': 'Заявитель', 'card.time': 'Время', 'card.aid': 'Вид помощи', 'card.disposition': 'Решение',
+      'card.checkin': 'Отметиться', 'card.checkout': 'Выйти', 'card.available': 'Доступен', 'card.unavailable': 'Недоступен',
+      'card.join': 'Присоединиться к виртуальному слушанию (видео)', 'card.participants': 'Участники',
+      'card.pNotChecked': 'Не отметился', 'card.removed': 'Удалён', 'card.inProgress': 'Идёт',
+      'card.closedNote': 'Это слушание закрыто.', 'card.checkedIn': 'Вы отметились.', 'card.wait': 'Ожидание ~{m} мин',
+      'card.limited': 'Сведения об участниках ограничены для вашей роли.',
+      'officer.call': 'Вызвать на слушание', 'officer.start': 'Начать / Запустить конференцию', 'officer.close': 'Закрыть слушание',
+      'officer.recall': 'Повторно вызвать слушание', 'officer.deny': 'Отклонить', 'officer.reassign': 'Переназначить…',
+      'officer.waiting': 'Ожидается, что хотя бы один участник отметится и будет доступен.',
+      'role.appellant': 'Заявитель', 'role.appellant_rep': 'Представитель заявителя', 'role.appellant_witness': 'Свидетель заявителя',
+      'role.agency_rep': 'Представитель агентства', 'role.agency_witness': 'Свидетель агентства', 'role.interpreter': 'Переводчик',
+      'role.hearing_officer': 'Судья (ALJ)', 'role.admin_staff': 'Административный персонал', 'role.supervisor': 'Руководитель / Секретарь',
+      'summary.title': 'Резюме слушания (ИИ)', 'summary.generate': 'Создать', 'summary.regenerate': 'Создать заново',
+      'filter.all': 'Все статусы', 'sort.time': 'Сортировка: время', 'sort.appellant': 'Сортировка: имя заявителя',
+      'sort.status': 'Сортировка: статус', 'sort.agency': 'Сортировка: агентство', 'lang.select': 'Выбрать язык',
+    },
+    bn: {
+      'app.title': 'ভার্চুয়াল ওয়েটিং রুম', 'common.language': 'ভাষা', 'common.empty': 'আপনার ভিউয়ের সাথে মেলে এমন কোনো শুনানি নেই।',
+      'nav.live': 'লাইভ', 'nav.offline': 'অফলাইন', 'nav.reset': 'রিসেট', 'nav.signout': 'সাইন আউট',
+      'login.signinVia': 'ITS Identity (SSO) দিয়ে সাইন ইন করুন', 'login.signin': 'SSO দিয়ে সাইন ইন',
+      'view.my': 'আমার শুনানি', 'view.assigned': 'আমাকে বরাদ্দকৃত শুনানি',
+      'view.oversight': 'সকল শুনানি — তত্ত্বাবধান ড্যাশবোর্ড', 'view.support': 'আমি যেসব শুনানিতে সহায়তা করি',
+      'status.not_checked_in': 'চেক-ইন হয়নি', 'status.not_ready': 'প্রস্তুত নয়', 'status.ready': 'শুনানির জন্য প্রস্তুত',
+      'status.called': 'ডাকা হয়েছে', 'status.recalled': 'পুনরায় ডাকা হয়েছে', 'status.closed': 'বন্ধ',
+      'card.appellant': 'আপিলকারী', 'card.time': 'সময়', 'card.aid': 'সহায়তার ধরন', 'card.disposition': 'নিষ্পত্তি',
+      'card.checkin': 'চেক ইন', 'card.checkout': 'চেক আউট', 'card.available': 'উপলব্ধ', 'card.unavailable': 'অনুপলব্ধ',
+      'card.join': 'ভার্চুয়াল শুনানিতে যোগ দিন (ভিডিও)', 'card.participants': 'অংশগ্রহণকারীরা',
+      'card.pNotChecked': 'চেক-ইন হয়নি', 'card.removed': 'অপসারিত', 'card.inProgress': 'চলছে',
+      'card.closedNote': 'এই শুনানিটি বন্ধ।', 'card.checkedIn': 'আপনি চেক-ইন করেছেন।', 'card.wait': 'আনুমানিক অপেক্ষা ~{m} মিনিট',
+      'card.limited': 'আপনার ভূমিকার জন্য অংশগ্রহণকারীর বিবরণ সীমিত।',
+      'officer.call': 'শুনানিতে ডাকুন', 'officer.start': 'শুরু করুন / কনফারেন্স চালু করুন', 'officer.close': 'শুনানি বন্ধ করুন',
+      'officer.recall': 'শুনানি পুনরায় ডাকুন', 'officer.deny': 'প্রত্যাখ্যান', 'officer.reassign': 'পুনরায় বরাদ্দ করুন…',
+      'officer.waiting': 'অন্তত একজন অংশগ্রহণকারী চেক-ইন ও উপলব্ধ হওয়ার অপেক্ষায়।',
+      'role.appellant': 'আপিলকারী', 'role.appellant_rep': 'আপিলকারীর প্রতিনিধি', 'role.appellant_witness': 'আপিলকারীর সাক্ষী',
+      'role.agency_rep': 'সংস্থার প্রতিনিধি', 'role.agency_witness': 'সংস্থার সাক্ষী', 'role.interpreter': 'দোভাষী',
+      'role.hearing_officer': 'শুনানি কর্মকর্তা (ALJ)', 'role.admin_staff': 'প্রশাসনিক কর্মী', 'role.supervisor': 'সুপারভাইজার / কেরানি',
+      'summary.title': 'AI শুনানির সারসংক্ষেপ', 'summary.generate': 'তৈরি করুন', 'summary.regenerate': 'পুনরায় তৈরি করুন',
+      'filter.all': 'সব স্ট্যাটাস', 'sort.time': 'সাজান: নির্ধারিত সময়', 'sort.appellant': 'সাজান: আপিলকারীর নাম',
+      'sort.status': 'সাজান: স্ট্যাটাস', 'sort.agency': 'সাজান: সংস্থা', 'lang.select': 'ভাষা নির্বাচন করুন',
+    },
+    ht: {
+      'app.title': 'Sal Datant Vityèl', 'common.language': 'Lang', 'common.empty': 'Pa gen odyans ki koresponn ak vi ou.',
+      'nav.live': 'Anliy', 'nav.offline': 'Dekonekte', 'nav.reset': 'Reyajiste', 'nav.signout': 'Dekonekte',
+      'login.signinVia': 'Konekte ak ITS Identity (SSO)', 'login.signin': 'Konekte ak SSO',
+      'view.my': 'Odyans Mwen yo', 'view.assigned': 'Odyans yo Ban Mwen',
+      'view.oversight': 'Tout Odyans — Tablo Sipèvizyon', 'view.support': 'Odyans Mwen Sipòte',
+      'status.not_checked_in': 'Poko Anrejistre', 'status.not_ready': 'Pa Pare', 'status.ready': 'Pare pou Odyans',
+      'status.called': 'Rele', 'status.recalled': 'Rele Ankò', 'status.closed': 'Fèmen',
+      'card.appellant': 'Apelan', 'card.time': 'Lè', 'card.aid': 'Kalite Èd', 'card.disposition': 'Desizyon',
+      'card.checkin': 'Anrejistre', 'card.checkout': 'Soti', 'card.available': 'Disponib', 'card.unavailable': 'Pa Disponib',
+      'card.join': 'Antre nan Odyans Vityèl la (Videyo)', 'card.participants': 'Patisipan yo',
+      'card.pNotChecked': 'Poko anrejistre', 'card.removed': 'Retire', 'card.inProgress': 'Ap fèt',
+      'card.closedNote': 'Odyans sa a fèmen.', 'card.checkedIn': 'Ou anrejistre.', 'card.wait': 'Tan estime ~{m} min',
+      'card.limited': 'Detay patisipan yo limite pou wòl ou.',
+      'officer.call': 'Rele Odyans la', 'officer.start': 'Kòmanse / Lanse Konferans', 'officer.close': 'Fèmen Odyans',
+      'officer.recall': 'Rele Odyans Ankò', 'officer.deny': 'Refize', 'officer.reassign': 'Reasiyen bay…',
+      'officer.waiting': 'N ap tann pou omwen yon patisipan anrejistre epi disponib.',
+      'role.appellant': 'Apelan', 'role.appellant_rep': 'Reprezantan Apelan', 'role.appellant_witness': 'Temwen Apelan',
+      'role.agency_rep': 'Reprezantan Ajans', 'role.agency_witness': 'Temwen Ajans', 'role.interpreter': 'Entèprèt',
+      'role.hearing_officer': 'Jij Odyans (ALJ)', 'role.admin_staff': 'Pèsonèl Administratif', 'role.supervisor': 'Sipèvizè / Grefye',
+      'summary.title': 'Rezime Odyans AI', 'summary.generate': 'Jenere', 'summary.regenerate': 'Rejenere',
+      'filter.all': 'Tout estati', 'sort.time': 'Klase: Lè pwograme', 'sort.appellant': 'Klase: Non apelan',
+      'sort.status': 'Klase: Estati', 'sort.agency': 'Klase: Ajans', 'lang.select': 'Chwazi lang',
+    },
+    ko: {
+      'app.title': '가상 대기실', 'common.language': '언어', 'common.empty': '보기에 해당하는 심리가 없습니다.',
+      'nav.live': '실시간', 'nav.offline': '오프라인', 'nav.reset': '초기화', 'nav.signout': '로그아웃',
+      'login.signinVia': 'ITS Identity(SSO)로 로그인', 'login.signin': 'SSO로 로그인',
+      'view.my': '내 심리', 'view.assigned': '배정된 심리', 'view.oversight': '전체 심리 — 감독 대시보드', 'view.support': '내가 지원하는 심리',
+      'status.not_checked_in': '미체크인', 'status.not_ready': '준비 안 됨', 'status.ready': '심리 준비 완료',
+      'status.called': '호출됨', 'status.recalled': '재호출됨', 'status.closed': '종료됨',
+      'card.appellant': '항소인', 'card.time': '시간', 'card.aid': '지원 유형', 'card.disposition': '처분',
+      'card.checkin': '체크인', 'card.checkout': '체크아웃', 'card.available': '참여 가능', 'card.unavailable': '참여 불가',
+      'card.join': '가상 심리 참여 (영상)', 'card.participants': '참여자',
+      'card.pNotChecked': '미체크인', 'card.removed': '제거됨', 'card.inProgress': '진행 중',
+      'card.closedNote': '이 심리는 종료되었습니다.', 'card.checkedIn': '체크인되었습니다.', 'card.wait': '예상 대기 ~{m}분',
+      'card.limited': '귀하의 역할에서는 참여자 정보가 제한됩니다.',
+      'officer.call': '심리 호출', 'officer.start': '시작 / 회의 열기', 'officer.close': '심리 종료',
+      'officer.recall': '심리 재호출', 'officer.deny': '거부', 'officer.reassign': '재배정…',
+      'officer.waiting': '한 명 이상의 참여자가 체크인하고 참여 가능해질 때까지 기다리는 중입니다.',
+      'role.appellant': '항소인', 'role.appellant_rep': '항소인 대리인', 'role.appellant_witness': '항소인 증인',
+      'role.agency_rep': '기관 대표', 'role.agency_witness': '기관 증인', 'role.interpreter': '통역사',
+      'role.hearing_officer': '심리관 (ALJ)', 'role.admin_staff': '행정 직원', 'role.supervisor': '감독관 / 서기',
+      'summary.title': 'AI 심리 요약', 'summary.generate': '생성', 'summary.regenerate': '다시 생성',
+      'filter.all': '모든 상태', 'sort.time': '정렬: 예정 시간', 'sort.appellant': '정렬: 항소인 이름',
+      'sort.status': '정렬: 상태', 'sort.agency': '정렬: 기관', 'lang.select': '언어 선택',
+    },
+    ar: {
+      'app.title': 'غرفة الانتظار الافتراضية', 'common.language': 'اللغة', 'common.empty': 'لا توجد جلسات تطابق العرض الخاص بك.',
+      'nav.live': 'مباشر', 'nav.offline': 'غير متصل', 'nav.reset': 'إعادة تعيين', 'nav.signout': 'تسجيل الخروج',
+      'login.signinVia': 'تسجيل الدخول عبر ITS Identity (SSO)', 'login.signin': 'تسجيل الدخول عبر SSO',
+      'view.my': 'جلساتي', 'view.assigned': 'الجلسات المسندة إليّ', 'view.oversight': 'جميع الجلسات — لوحة الإشراف', 'view.support': 'الجلسات التي أدعمها',
+      'status.not_checked_in': 'لم يتم تسجيل الوصول', 'status.not_ready': 'غير جاهز', 'status.ready': 'جاهز للجلسة',
+      'status.called': 'تم الاستدعاء', 'status.recalled': 'أُعيد الاستدعاء', 'status.closed': 'مغلق',
+      'card.appellant': 'المستأنف', 'card.time': 'الوقت', 'card.aid': 'نوع المساعدة', 'card.disposition': 'القرار',
+      'card.checkin': 'تسجيل الوصول', 'card.checkout': 'تسجيل الخروج', 'card.available': 'متاح', 'card.unavailable': 'غير متاح',
+      'card.join': 'الانضمام إلى الجلسة الافتراضية (فيديو)', 'card.participants': 'المشاركون',
+      'card.pNotChecked': 'لم يسجّل الوصول', 'card.removed': 'تمت الإزالة', 'card.inProgress': 'جارية',
+      'card.closedNote': 'هذه الجلسة مغلقة.', 'card.checkedIn': 'لقد سجّلت وصولك.', 'card.wait': 'الانتظار المقدّر ~{m} دقيقة',
+      'card.limited': 'تفاصيل المشاركين محدودة حسب دورك.',
+      'officer.call': 'استدعاء الجلسة', 'officer.start': 'بدء / إطلاق المؤتمر', 'officer.close': 'إغلاق الجلسة',
+      'officer.recall': 'إعادة استدعاء الجلسة', 'officer.deny': 'رفض', 'officer.reassign': 'إعادة التعيين إلى…',
+      'officer.waiting': 'في انتظار تسجيل وصول مشارك واحد على الأقل وتوفره.',
+      'role.appellant': 'المستأنف', 'role.appellant_rep': 'ممثل المستأنف', 'role.appellant_witness': 'شاهد المستأنف',
+      'role.agency_rep': 'ممثل الوكالة', 'role.agency_witness': 'شاهد الوكالة', 'role.interpreter': 'مترجم فوري',
+      'role.hearing_officer': 'قاضي الجلسة (ALJ)', 'role.admin_staff': 'الموظفون الإداريون', 'role.supervisor': 'مشرف / كاتب',
+      'summary.title': 'ملخص الجلسة بالذكاء الاصطناعي', 'summary.generate': 'إنشاء', 'summary.regenerate': 'إعادة الإنشاء',
+      'filter.all': 'جميع الحالات', 'sort.time': 'ترتيب: الوقت المحدد', 'sort.appellant': 'ترتيب: اسم المستأنف',
+      'sort.status': 'ترتيب: الحالة', 'sort.agency': 'ترتيب: الوكالة', 'lang.select': 'اختر اللغة',
+    },
+    it: {
+      'app.title': "Sala d'Attesa Virtuale", 'common.language': 'Lingua', 'common.empty': 'Nessuna udienza corrisponde alla tua vista.',
+      'nav.live': 'In linea', 'nav.offline': 'Non in linea', 'nav.reset': 'Reimposta', 'nav.signout': 'Esci',
+      'login.signinVia': 'Accedi con ITS Identity (SSO)', 'login.signin': 'Accedi con SSO',
+      'view.my': 'Le Mie Udienze', 'view.assigned': 'Udienze Assegnate a Me',
+      'view.oversight': 'Tutte le Udienze — Pannello di Supervisione', 'view.support': 'Udienze che Supporto',
+      'status.not_checked_in': 'Non Registrato', 'status.not_ready': 'Non Pronto', 'status.ready': "Pronto per l'Udienza",
+      'status.called': 'Chiamato', 'status.recalled': 'Richiamato', 'status.closed': 'Chiuso',
+      'card.appellant': 'Ricorrente', 'card.time': 'Ora', 'card.aid': 'Tipo di Aiuto', 'card.disposition': 'Decisione',
+      'card.checkin': 'Registrati', 'card.checkout': 'Esci', 'card.available': 'Disponibile', 'card.unavailable': 'Non Disponibile',
+      'card.join': "Partecipa all'Udienza Virtuale (Video)", 'card.participants': 'Partecipanti',
+      'card.pNotChecked': 'Non registrato', 'card.removed': 'Rimosso', 'card.inProgress': 'In corso',
+      'card.closedNote': 'Questa udienza è chiusa.', 'card.checkedIn': 'Sei registrato.', 'card.wait': 'Attesa stimata ~{m} min',
+      'card.limited': 'I dettagli dei partecipanti sono limitati per il tuo ruolo.',
+      'officer.call': "Chiama l'Udienza", 'officer.start': 'Avvia / Apri Conferenza', 'officer.close': 'Chiudi Udienza',
+      'officer.recall': 'Richiama Udienza', 'officer.deny': 'Rifiuta', 'officer.reassign': 'Riassegna a…',
+      'officer.waiting': 'In attesa che almeno un partecipante si registri e sia disponibile.',
+      'role.appellant': 'Ricorrente', 'role.appellant_rep': 'Rappresentante del Ricorrente', 'role.appellant_witness': 'Testimone del Ricorrente',
+      'role.agency_rep': "Rappresentante dell'Agenzia", 'role.agency_witness': "Testimone dell'Agenzia", 'role.interpreter': 'Interprete',
+      'role.hearing_officer': "Giudice dell'Udienza (ALJ)", 'role.admin_staff': 'Personale Amministrativo', 'role.supervisor': 'Supervisore / Cancelliere',
+      'summary.title': 'Riepilogo Udienza IA', 'summary.generate': 'Genera', 'summary.regenerate': 'Rigenera',
+      'filter.all': 'Tutti gli stati', 'sort.time': 'Ordina: Orario previsto', 'sort.appellant': 'Ordina: Nome ricorrente',
+      'sort.status': 'Ordina: Stato', 'sort.agency': 'Ordina: Agenzia', 'lang.select': 'Seleziona lingua',
+    },
+    pl: {
+      'app.title': 'Wirtualna Poczekalnia', 'common.language': 'Język', 'common.empty': 'Brak rozpraw pasujących do Twojego widoku.',
+      'nav.live': 'Na żywo', 'nav.offline': 'Offline', 'nav.reset': 'Resetuj', 'nav.signout': 'Wyloguj',
+      'login.signinVia': 'Zaloguj się przez ITS Identity (SSO)', 'login.signin': 'Zaloguj się przez SSO',
+      'view.my': 'Moje Rozprawy', 'view.assigned': 'Przydzielone Mi Rozprawy',
+      'view.oversight': 'Wszystkie Rozprawy — Panel Nadzoru', 'view.support': 'Rozprawy, które Wspieram',
+      'status.not_checked_in': 'Niezameldowany', 'status.not_ready': 'Niegotowy', 'status.ready': 'Gotowy do Rozprawy',
+      'status.called': 'Wezwany', 'status.recalled': 'Wezwany Ponownie', 'status.closed': 'Zamknięty',
+      'card.appellant': 'Odwołujący', 'card.time': 'Godzina', 'card.aid': 'Rodzaj Pomocy', 'card.disposition': 'Rozstrzygnięcie',
+      'card.checkin': 'Zamelduj się', 'card.checkout': 'Wymelduj się', 'card.available': 'Dostępny', 'card.unavailable': 'Niedostępny',
+      'card.join': 'Dołącz do Rozprawy Wirtualnej (Wideo)', 'card.participants': 'Uczestnicy',
+      'card.pNotChecked': 'Niezameldowany', 'card.removed': 'Usunięty', 'card.inProgress': 'W toku',
+      'card.closedNote': 'Ta rozprawa jest zamknięta.', 'card.checkedIn': 'Jesteś zameldowany.', 'card.wait': 'Szac. czas oczekiwania ~{m} min',
+      'card.limited': 'Szczegóły uczestników są ograniczone dla Twojej roli.',
+      'officer.call': 'Wezwij na Rozprawę', 'officer.start': 'Rozpocznij / Uruchom Konferencję', 'officer.close': 'Zamknij Rozprawę',
+      'officer.recall': 'Wezwij Ponownie', 'officer.deny': 'Odmów', 'officer.reassign': 'Przydziel ponownie do…',
+      'officer.waiting': 'Oczekiwanie, aż co najmniej jeden uczestnik się zamelduje i będzie dostępny.',
+      'role.appellant': 'Odwołujący', 'role.appellant_rep': 'Pełnomocnik Odwołującego', 'role.appellant_witness': 'Świadek Odwołującego',
+      'role.agency_rep': 'Przedstawiciel Agencji', 'role.agency_witness': 'Świadek Agencji', 'role.interpreter': 'Tłumacz',
+      'role.hearing_officer': 'Sędzia (ALJ)', 'role.admin_staff': 'Personel Administracyjny', 'role.supervisor': 'Kierownik / Sekretarz',
+      'summary.title': 'Podsumowanie Rozprawy AI', 'summary.generate': 'Generuj', 'summary.regenerate': 'Generuj ponownie',
+      'filter.all': 'Wszystkie statusy', 'sort.time': 'Sortuj: Zaplanowany czas', 'sort.appellant': 'Sortuj: Nazwisko odwołującego',
+      'sort.status': 'Sortuj: Status', 'sort.agency': 'Sortuj: Agencja', 'lang.select': 'Wybierz język',
+    },
+    fr: {
+      'app.title': "Salle d'Attente Virtuelle", 'common.language': 'Langue', 'common.empty': 'Aucune audience ne correspond à votre vue.',
+      'nav.live': 'En ligne', 'nav.offline': 'Hors ligne', 'nav.reset': 'Réinitialiser', 'nav.signout': 'Se déconnecter',
+      'login.signinVia': 'Se connecter via ITS Identity (SSO)', 'login.signin': 'Se connecter via SSO',
+      'view.my': 'Mes Audiences', 'view.assigned': 'Audiences qui me sont Assignées',
+      'view.oversight': 'Toutes les Audiences — Tableau de Supervision', 'view.support': 'Audiences que je Soutiens',
+      'status.not_checked_in': 'Non Enregistré', 'status.not_ready': 'Pas Prêt', 'status.ready': "Prêt pour l'Audience",
+      'status.called': 'Appelé', 'status.recalled': 'Rappelé', 'status.closed': 'Clôturé',
+      'card.appellant': 'Appelant', 'card.time': 'Heure', 'card.aid': "Type d'Aide", 'card.disposition': 'Décision',
+      'card.checkin': "S'enregistrer", 'card.checkout': 'Se retirer', 'card.available': 'Disponible', 'card.unavailable': 'Indisponible',
+      'card.join': "Rejoindre l'Audience Virtuelle (Vidéo)", 'card.participants': 'Participants',
+      'card.pNotChecked': 'Non enregistré', 'card.removed': 'Retiré', 'card.inProgress': 'En cours',
+      'card.closedNote': 'Cette audience est clôturée.', 'card.checkedIn': 'Vous êtes enregistré.', 'card.wait': 'Attente estimée ~{m} min',
+      'card.limited': 'Les détails des participants sont limités pour votre rôle.',
+      'officer.call': "Appeler l'Audience", 'officer.start': 'Démarrer / Lancer la Conférence', 'officer.close': "Clôturer l'Audience",
+      'officer.recall': "Rappeler l'Audience", 'officer.deny': 'Refuser', 'officer.reassign': 'Réassigner à…',
+      'officer.waiting': "En attente qu'au moins un participant s'enregistre et soit disponible.",
+      'role.appellant': 'Appelant', 'role.appellant_rep': "Représentant de l'Appelant", 'role.appellant_witness': "Témoin de l'Appelant",
+      'role.agency_rep': "Représentant de l'Agence", 'role.agency_witness': "Témoin de l'Agence", 'role.interpreter': 'Interprète',
+      'role.hearing_officer': 'Juge Administratif (ALJ)', 'role.admin_staff': 'Personnel Administratif', 'role.supervisor': 'Superviseur / Greffier',
+      'summary.title': "Résumé d'Audience IA", 'summary.generate': 'Générer', 'summary.regenerate': 'Régénérer',
+      'filter.all': 'Tous les statuts', 'sort.time': 'Trier : Heure prévue', 'sort.appellant': "Trier : Nom de l'appelant",
+      'sort.status': 'Trier : Statut', 'sort.agency': 'Trier : Agence', 'lang.select': 'Choisir la langue',
+    },
+    ur: {
+      'app.title': 'ورچوئل ویٹنگ روم', 'common.language': 'زبان', 'common.empty': 'آپ کے منظر سے مطابقت رکھنے والی کوئی سماعت نہیں۔',
+      'nav.live': 'لائیو', 'nav.offline': 'آف لائن', 'nav.reset': 'ری سیٹ', 'nav.signout': 'سائن آؤٹ',
+      'login.signinVia': 'ITS Identity (SSO) کے ذریعے سائن ان کریں', 'login.signin': 'SSO کے ذریعے سائن ان',
+      'view.my': 'میری سماعتیں', 'view.assigned': 'مجھے تفویض کردہ سماعتیں',
+      'view.oversight': 'تمام سماعتیں — نگرانی ڈیش بورڈ', 'view.support': 'وہ سماعتیں جن کی میں معاونت کرتا ہوں',
+      'status.not_checked_in': 'چیک ان نہیں ہوا', 'status.not_ready': 'تیار نہیں', 'status.ready': 'سماعت کے لیے تیار',
+      'status.called': 'بلایا گیا', 'status.recalled': 'دوبارہ بلایا گیا', 'status.closed': 'بند',
+      'card.appellant': 'اپیل کنندہ', 'card.time': 'وقت', 'card.aid': 'امداد کی قسم', 'card.disposition': 'فیصلہ',
+      'card.checkin': 'چیک ان', 'card.checkout': 'چیک آؤٹ', 'card.available': 'دستیاب', 'card.unavailable': 'غیر دستیاب',
+      'card.join': 'ورچوئل سماعت میں شامل ہوں (ویڈیو)', 'card.participants': 'شرکاء',
+      'card.pNotChecked': 'چیک ان نہیں ہوا', 'card.removed': 'ہٹا دیا گیا', 'card.inProgress': 'جاری ہے',
+      'card.closedNote': 'یہ سماعت بند ہے۔', 'card.checkedIn': 'آپ چیک ان ہو چکے ہیں۔', 'card.wait': 'تخمینی انتظار ~{m} منٹ',
+      'card.limited': 'آپ کے کردار کے لیے شرکاء کی تفصیلات محدود ہیں۔',
+      'officer.call': 'سماعت کے لیے بلائیں', 'officer.start': 'شروع کریں / کانفرنس لانچ کریں', 'officer.close': 'سماعت بند کریں',
+      'officer.recall': 'سماعت دوبارہ بلائیں', 'officer.deny': 'مسترد کریں', 'officer.reassign': 'دوبارہ تفویض کریں…',
+      'officer.waiting': 'کم از کم ایک شریک کے چیک ان اور دستیاب ہونے کا انتظار ہے۔',
+      'role.appellant': 'اپیل کنندہ', 'role.appellant_rep': 'اپیل کنندہ کا نمائندہ', 'role.appellant_witness': 'اپیل کنندہ کا گواہ',
+      'role.agency_rep': 'ایجنسی کا نمائندہ', 'role.agency_witness': 'ایجنسی کا گواہ', 'role.interpreter': 'مترجم',
+      'role.hearing_officer': 'سماعت افسر (ALJ)', 'role.admin_staff': 'انتظامی عملہ', 'role.supervisor': 'سپروائزر / کلرک',
+      'summary.title': 'AI سماعت کا خلاصہ', 'summary.generate': 'تیار کریں', 'summary.regenerate': 'دوبارہ تیار کریں',
+      'filter.all': 'تمام حالتیں', 'sort.time': 'ترتیب: مقررہ وقت', 'sort.appellant': 'ترتیب: اپیل کنندہ کا نام',
+      'sort.status': 'ترتیب: حالت', 'sort.agency': 'ترتیب: ایجنسی', 'lang.select': 'زبان منتخب کریں',
+    },
+    yi: {
+      'app.title': 'ווירטועלער ווארטצימער', 'common.language': 'שפּראַך', 'common.empty': 'קיין הירונגען וואָס פּאַסן צו אײַער מבט.',
+      'nav.live': 'לײַוו', 'nav.offline': 'אָפֿלײַן', 'nav.reset': 'רעסעט', 'nav.signout': 'אַרויסלאָגירן',
+      'login.signinVia': 'אַרײַנלאָגירן דורך ITS Identity (SSO)', 'login.signin': 'אַרײַנלאָגירן דורך SSO',
+      'view.my': 'מײַנע הירונגען', 'view.assigned': 'הירונגען צוגעטיילט צו מיר',
+      'view.oversight': 'אַלע הירונגען — אויפזיכט טאַוול', 'view.support': 'הירונגען וואָס איך שטיצן',
+      'status.not_checked_in': 'נישט אײַנגעטשעקט', 'status.not_ready': 'נישט גרייט', 'status.ready': 'גרייט פֿאַר הירונג',
+      'status.called': 'גערופֿן', 'status.recalled': 'ווידער גערופֿן', 'status.closed': 'פֿאַרמאַכט',
+      'card.appellant': 'אַפּעלאַנט', 'card.time': 'צײַט', 'card.aid': 'טיפּ הילף', 'card.disposition': 'באַשלוס',
+      'card.checkin': 'אײַנטשעקן', 'card.checkout': 'אַרויסטשעקן', 'card.available': 'פֿאַראַן', 'card.unavailable': 'נישט פֿאַראַן',
+      'card.join': 'אַרײַנגיין אין דער ווירטועלער הירונג (ווידעאָ)', 'card.participants': 'טיילנעמער',
+      'card.pNotChecked': 'נישט אײַנגעטשעקט', 'card.removed': 'אַראָפּגענומען', 'card.inProgress': 'אין גאַנג',
+      'card.closedNote': 'די הירונג איז פֿאַרמאַכט.', 'card.checkedIn': 'איר זענט אײַנגעטשעקט.', 'card.wait': 'געשאַצטע וואַרטן ~{m} מינ',
+      'card.limited': 'טיילנעמער פּרטים זענען באַגרענעצט פֿאַר אײַער ראָלע.',
+      'officer.call': 'רופֿן די הירונג', 'officer.start': 'אָנהייבן / עפֿענען קאָנפֿערענץ', 'officer.close': 'פֿאַרמאַכן הירונג',
+      'officer.recall': 'ווידער רופֿן הירונג', 'officer.deny': 'אָפּזאָגן', 'officer.reassign': 'איבערטיילן צו…',
+      'officer.waiting': 'וואַרטן אַז כאָטש איין טיילנעמער זאָל זיך אײַנטשעקן און זײַן פֿאַראַן.',
+      'role.appellant': 'אַפּעלאַנט', 'role.appellant_rep': 'פֿאָרשטייער פֿונעם אַפּעלאַנט', 'role.appellant_witness': 'עדות פֿונעם אַפּעלאַנט',
+      'role.agency_rep': 'פֿאָרשטייער פֿון דער אַגענטור', 'role.agency_witness': 'עדות פֿון דער אַגענטור', 'role.interpreter': 'דאָלמעטשער',
+      'role.hearing_officer': 'הירונג אָפֿיציר (ALJ)', 'role.admin_staff': 'אַדמיניסטראַטיווע פּערסאָנאַל', 'role.supervisor': 'סופּערווייזער / קלערק',
+      'summary.title': 'AI הירונג רעזיומע', 'summary.generate': 'שאַפֿן', 'summary.regenerate': 'ווידער שאַפֿן',
+      'filter.all': 'אַלע סטאַטוסן', 'sort.time': 'סאָרטירן: באַשטימטע צײַט', 'sort.appellant': 'סאָרטירן: אַפּעלאַנט נאָמען',
+      'sort.status': 'סאָרטירן: סטאַטוס', 'sort.agency': 'סאָרטירן: אַגענטור', 'lang.select': 'אויסקלײַבן שפּראַך',
     },
   };
 
   let lang = localStorage.getItem('vwrLang') || 'en';
-  let aiEnabled = false;
-  let dyn = {};
-  try { dyn = JSON.parse(localStorage.getItem('vwrI18nCache') || '{}'); } catch (_) { dyn = {}; }
-
-  function dictFor(l) {
-    if (l === 'en') return STRINGS.en;
-    return Object.assign({}, STRINGS.en, STRINGS[l] || {}, dyn[l] || {});
-  }
+  if (!STRINGS[lang]) lang = 'en';
 
   function t(key, vars) {
-    const d = dictFor(lang);
+    const d = STRINGS[lang] || STRINGS.en;
     let s = d[key] != null ? d[key] : (STRINGS.en[key] != null ? STRINGS.en[key] : key);
     if (vars) for (const k in vars) s = s.replace(new RegExp('\\{' + k + '\\}', 'g'), vars[k]);
     return s;
@@ -1650,48 +1922,20 @@ body.conf-open { overflow: hidden; }
     document.documentElement.lang = lang;
   }
 
-  // Fetch AI translations for all keys of a non-baked language and cache them.
-  async function ensureLang(l) {
-    if (l === 'en' || STRINGS[l] || dyn[l]) return;     // baked or already cached
-    if (!aiEnabled) return;                              // will fall back to English
-    const keys = Object.keys(STRINGS.en);
-    const texts = keys.map((k) => STRINGS.en[k]);
-    try {
-      const res = await fetch('/api/ai/translate-ui', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ texts, to: l }),
-      });
-      const data = await res.json();
-      if (data && Array.isArray(data.translations) && data.translations.length === keys.length) {
-        const map = {};
-        keys.forEach((k, i) => (map[k] = data.translations[i]));
-        dyn[l] = map;
-        localStorage.setItem('vwrI18nCache', JSON.stringify(dyn));
-      }
-    } catch (_) { /* keep English fallback */ }
-  }
-
-  async function setLang(l) {
+  function setLang(l) {
+    if (!STRINGS[l]) l = 'en';
     lang = l;
     localStorage.setItem('vwrLang', l);
-    await ensureLang(l);
     setDir();
     applyStatic();
     if (typeof window.VWRonLangChange === 'function') window.VWRonLangChange();
   }
 
-  function isMachineTranslated(l) {
-    const code = l || lang;
-    return code !== 'en' && !STRINGS[code]; // not baked -> AI/fallback
-  }
-
   window.VWRi18n = {
-    t, setLang, getLang: () => lang, LANGS,
-    applyStatic, ensureLang, isMachineTranslated,
-    init: (opts) => { aiEnabled = !!(opts && opts.aiEnabled); },
+    t, setLang, getLang: () => lang, LANGS, applyStatic,
+    init: () => {},                 // all languages baked; no async setup needed
   };
 
-  // Apply baked language immediately on load (before app boot).
   setDir();
   document.addEventListener('DOMContentLoaded', () => applyStatic());
 })();
@@ -1736,9 +1980,8 @@ body.conf-open { overflow: hidden; }
     ROLES = data.roles;
     directoryUsers = data.directory;
 
-    // i18n: enable AI-backed languages if the server has a model configured
-    if (window.VWRi18n) window.VWRi18n.init({ aiEnabled: !!data.aiEnabled });
-    setupLanguageSwitchers();
+    if (window.VWRi18n) window.VWRi18n.init();
+    setupLanguageMenu();
 
     refreshDirectoryOptions();
     refreshStatusFilter();
@@ -1758,24 +2001,46 @@ body.conf-open { overflow: hidden; }
     fs.value = cur;
   }
 
-  function setupLanguageSwitchers() {
-    const opts = window.VWRi18n.LANGS
-      .map((l) => `<option value="${l.code}">${l.name}</option>`).join('');
-    ['#lang-login', '#lang-top'].forEach((sel) => {
-      const el = $(sel);
-      if (!el) return;
-      el.innerHTML = opts;
-      el.value = window.VWRi18n.getLang();
-      el.onchange = async () => {
-        await window.VWRi18n.setLang(el.value);
-        // keep both switchers in sync
-        ['#lang-login', '#lang-top'].forEach((s) => { const e = $(s); if (e) e.value = el.value; });
-      };
-    });
+  function updateLangCurrent() {
+    const l = window.VWRi18n.LANGS.find((x) => x.code === window.VWRi18n.getLang());
+    const cur = $('#lang-current');
+    if (cur) cur.textContent = l ? l.name : 'English';
+  }
+
+  // Globe language menu (top-left), styled like the NYS Child Support selector.
+  function setupLanguageMenu() {
+    const btn = $('#lang-btn'), menu = $('#lang-menu');
+    if (!btn || !menu) return;
+    const cur = () => window.VWRi18n.getLang();
+    menu.innerHTML = window.VWRi18n.LANGS.map((l) =>
+      `<li role="menuitemradio" data-lang="${l.code}" lang="${l.code}" dir="${l.dir}" aria-checked="${l.code === cur()}" tabindex="0">${l.name}</li>`
+    ).join('');
+    updateLangCurrent();
+
+    const close = () => { menu.classList.add('hidden'); btn.setAttribute('aria-expanded', 'false'); };
+    const pick = (code) => {
+      window.VWRi18n.setLang(code);                 // synchronous — applies instantly
+      menu.querySelectorAll('li').forEach((x) => x.setAttribute('aria-checked', String(x.dataset.lang === code)));
+      updateLangCurrent();
+      close();
+    };
+
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      const open = menu.classList.toggle('hidden') === false;
+      btn.setAttribute('aria-expanded', String(open));
+    };
+    menu.onclick = (e) => { const li = e.target.closest('[data-lang]'); if (li) pick(li.dataset.lang); };
+    menu.onkeydown = (e) => {
+      const li = e.target.closest('[data-lang]');
+      if (li && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); pick(li.dataset.lang); }
+    };
+    document.addEventListener('click', () => { if (!menu.classList.contains('hidden')) close(); });
   }
 
   // Re-localize everything when the language changes.
   window.VWRonLangChange = () => {
+    updateLangCurrent();
     refreshDirectoryOptions();
     refreshStatusFilter();
     if (session) { $('#who-role').textContent = roleLabel(session.role); render(); }

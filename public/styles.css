@@ -121,14 +121,28 @@ nys-skipnav { position: relative; z-index: 1000; }
 .brand-sub { font-size: .72rem; opacity: .8; }
 .topbar-status { display: flex; align-items: center; gap: 14px; }
 
-/* Language switcher */
-.lang-select { font: inherit; }
-.lang-select-top {
-  background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.35);
-  border-radius: 8px; padding: 6px 8px; font: inherit; font-size: .85rem;
+/* Global language selector (globe), fixed top-left */
+.lang-widget { position: fixed; top: 10px; left: 14px; z-index: 500; }
+.lang-btn {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font: inherit; font-size: .85rem; font-weight: 600;
+  background: rgba(255,255,255,.16); color: #fff; border: 1px solid rgba(255,255,255,.45);
+  border-radius: 999px; padding: 6px 12px; backdrop-filter: blur(2px);
 }
-.lang-select-top option { color: #1b1b1b; }
-#lang-login { width: 100%; margin-bottom: 14px; }
+.lang-btn:hover { background: rgba(255,255,255,.28); }
+.lang-btn:focus-visible { outline: 3px solid var(--nys-gold); outline-offset: 2px; }
+.lang-menu {
+  position: absolute; top: calc(100% + 6px); left: 0; margin: 0; padding: 6px; list-style: none;
+  background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: 0 8px 28px rgba(16,32,55,.22); min-width: 210px; max-height: 70vh; overflow: auto;
+}
+.lang-menu.hidden { display: none; }
+.lang-menu li { padding: 9px 14px; border-radius: 8px; cursor: pointer; font-size: .92rem; white-space: nowrap; }
+.lang-menu li:hover { background: var(--nys-color-theme-weaker, #eff6fb); }
+.lang-menu li[aria-checked="true"] { background: var(--nys-color-theme-weak, #cddde9); color: var(--nys-blue); font-weight: 700; }
+
+/* On the white toolbar/app the globe still sits over the blue header, so keep it light. */
+[dir="rtl"] .lang-widget { left: auto; right: 14px; }
+[dir="rtl"] .lang-menu { left: auto; right: 0; }
 
 /* RTL support (Arabic, Urdu, Yiddish) */
 [dir="rtl"] .card-meta, [dir="rtl"] .my-controls, [dir="rtl"] .officer-controls { text-align: right; }
