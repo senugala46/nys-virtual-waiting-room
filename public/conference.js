@@ -30,6 +30,9 @@
       recRAF = 0, recAudioCtx = null, recDest = null, recConnected = null,
       recMime = '', recStart = null;
 
+  // Captions / translation state
+  let recognition = null, captionsOn = false, capLang = '', capHideTimer = 0;
+
   const $ = (id) => document.getElementById(id);
 
   /* Audio/video control icons. NYSDS ships 80 icons but none of the
@@ -88,6 +91,7 @@
   function leave() {
     if (!current) return;
     if (recording) { recording = false; socket.emit('conf:rec', { hearingId: current.hearingId, on: false }); stopRecording(); }
+    if (captionsOn) { captionsOn = false; stopRecognition(); }
     socket.emit('conf:leave');
     Object.keys(peers).forEach(removePeer);
     if (localStream) localStream.getTracks().forEach((t) => t.stop());
@@ -140,6 +144,7 @@
     socket.on('conf:force-mute', () => { if (micOn) toggleMic(); toast('You were muted by the Hearing Officer.'); });
     socket.on('conf:force-remove', () => { toast('You were removed from the hearing.'); leave(); });
     socket.on('conf:rec', ({ on }) => setRecIndicator(on));
+    socket.on('conf:caption', showCaption);
   }
 
   function createPeer(peerId, info, initiator) {
@@ -401,6 +406,66 @@
     el.innerHTML = `${icon}<span>${label}</span>`;
   }
 
+  /* ----------------------------- Captions / translation ----------------------------- */
+
+  function toggleCaptions() {
+    captionsOn = !captionsOn;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (captionsOn && !SR) {
+      captionsOn = false;
+      toast('Live captions need Chrome or Edge (Web Speech API).');
+      return;
+    }
+    setBtn('c-cc', captionsOn, svg('chat'), captionsOn ? 'Captions On' : 'Captions');
+    $('conf-captions').classList.toggle('hidden', !captionsOn);
+    if (captionsOn) startRecognition(); else stopRecognition();
+  }
+
+  function startRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR || recognition) return;
+    recognition = new SR();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.onresult = (e) => {
+      let interim = '', finalText = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) finalText += r[0].transcript; else interim += r[0].transcript;
+      }
+      if (interim) socket.emit('conf:caption', { hearingId: current.hearingId, text: interim, final: false });
+      if (finalText) socket.emit('conf:caption', { hearingId: current.hearingId, text: finalText.trim(), final: true });
+    };
+    recognition.onend = () => { if (captionsOn) { try { recognition.start(); } catch (_) {} } };
+    try { recognition.start(); } catch (_) {}
+  }
+  function stopRecognition() {
+    if (!recognition) return;
+    const r = recognition; recognition = null;
+    try { r.onend = null; r.stop(); } catch (_) {}
+  }
+
+  function showCaption({ from, role, text, final }) {
+    if (!captionsOn) { $('conf-captions').classList.remove('hidden'); captionsOn = true; setBtn('c-cc', true, svg('chat'), 'Captions On'); }
+    const orig = $('cap-original');
+    orig.textContent = `${from}: ${text}`;
+    // Auto-hide the overlay after a pause of silence
+    clearTimeout(capHideTimer);
+    capHideTimer = setTimeout(() => { orig.textContent = ''; $('cap-translated').textContent = ''; }, 6000);
+    // Interpreter assist: translate FINAL captions if a target language is chosen
+    const tr = $('cap-translated');
+    if (final && capLang) {
+      fetch('/api/ai/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, to: capLang }) })
+        .then((r) => r.json()).then((d) => {
+          tr.classList.remove('hidden');
+          tr.textContent = `↳ ${d.translation}`;
+        }).catch(() => {});
+    } else if (!capLang) {
+      tr.classList.add('hidden');
+    }
+  }
+
   /* ----------------------------- Chat ----------------------------- */
 
   function addChat({ from, role, text, ts }) {
@@ -423,6 +488,11 @@
     $('c-share').onclick = toggleShare;
     $('c-rec').onclick = toggleRecording;
     $('c-leave').onclick = leave;
+    $('c-cc').onclick = toggleCaptions;
+    $('cap-lang').onchange = (e) => {
+      capLang = e.target.value;
+      if (!capLang) $('cap-translated').classList.add('hidden');
+    };
     $('c-chat').onclick = () => $('conf-chat').classList.toggle('hidden');
     $('conf-chat-form').onsubmit = (e) => {
       e.preventDefault();

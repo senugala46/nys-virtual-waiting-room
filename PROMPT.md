@@ -95,6 +95,7 @@ const fs = require('fs');
 const http = require('http');
 const express = require('express');
 const { Server } = require('socket.io');
+const ai = require('./ai');
 
 const app = express();
 const server = http.createServer(app);
@@ -183,6 +184,9 @@ function seedData() {
     status: WR_STATUS.NOT_CHECKED_IN,
     disposition: null,
     conferenceUrl: null,
+    transcript: [],          // [{ from, role, text, ts }] — from live captions
+    summary: null,           // AI/extractive hearing summary
+    calledAt: null, startedAt: null, closedAt: null, // for wait-time prediction
     participants: p.participants.map((pp) => ({
       userId: pp.userId,
       name: pp.name,
@@ -324,11 +328,70 @@ function pushToIES(h, reason) {
  * Snapshot + broadcast
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * Predictive wait-times for docket balancing (heuristic, no AI needed)
+ * ------------------------------------------------------------------ */
+
+const DEFAULT_DURATION_MIN = 20;
+
+function computePredictions() {
+  // Learn average hearing duration from completed hearings; fall back to default.
+  const durations = hearings
+    .filter((h) => h.startedAt && h.closedAt)
+    .map((h) => (new Date(h.closedAt) - new Date(h.startedAt)) / 60000)
+    .filter((d) => d > 0 && d < 240);
+  const avg = durations.length
+    ? durations.reduce((a, b) => a + b, 0) / durations.length
+    : DEFAULT_DURATION_MIN;
+
+  const now = Date.now();
+  const perHearing = {};
+  const officerLoad = {};
+
+  // Group active queue by officer (exclude closed).
+  const byOfficer = {};
+  hearings.forEach((h) => {
+    const o = h.assignedOfficerId || 'unassigned';
+    (byOfficer[o] = byOfficer[o] || []).push(h);
+    if (h.status !== WR_STATUS.CLOSED) officerLoad[o] = (officerLoad[o] || 0) + 1;
+  });
+
+  for (const [officer, list] of Object.entries(byOfficer)) {
+    const active = list.find((h) => h.status === WR_STATUS.CALLED || h.status === WR_STATUS.RECALLED);
+    const elapsed = active && active.startedAt ? (now - new Date(active.startedAt)) / 60000 : 0;
+    let cumulative = active ? Math.max(0, avg - elapsed) : 0; // remaining on the in-progress one
+    if (active) perHearing[active.id] = { estimatedWaitMin: 0, inProgress: true, officer };
+
+    list
+      .filter((h) => h.status !== WR_STATUS.CLOSED && h !== active)
+      .sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime))
+      .forEach((h) => {
+        perHearing[h.id] = { estimatedWaitMin: Math.round(cumulative), inProgress: false, officer };
+        cumulative += avg;
+      });
+  }
+
+  // Docket-balancing suggestions: move from the busiest officer to the lightest.
+  const officers = Object.entries(officerLoad).filter(([o]) => o !== 'unassigned');
+  const suggestions = [];
+  if (officers.length >= 2) {
+    officers.sort((a, b) => b[1] - a[1]);
+    const [busy, bN] = officers[0];
+    const [light, lN] = officers[officers.length - 1];
+    if (bN - lN >= 2) {
+      suggestions.push(`Rebalance: ${officerName(busy)} has ${bN} open hearings vs ${officerName(light)} with ${lN}. Consider reassigning one.`);
+    }
+  }
+
+  return { avgDurationMin: Math.round(avg), perHearing, officerLoad, suggestions, generatedAt: new Date().toISOString() };
+}
+
 function snapshot() {
   recomputeAll();
   return {
     hearings,
     auditLog: auditLog.slice(0, 50),
+    predictions: computePredictions(),
     serverTime: new Date().toISOString(),
   };
 }
@@ -346,6 +409,10 @@ function findHearing(id) {
 }
 function findParticipant(h, userId) {
   return h && h.participants.find((p) => p.userId === userId);
+}
+function officerName(id) {
+  const o = directory.find((u) => u.userId === id);
+  return o ? o.name : (id || 'Unassigned');
 }
 
 // Enforce: a Hearing Officer may attend only ONE active hearing at a time (spec §6b.i)
@@ -450,6 +517,27 @@ app.post('/api/recordings/:hearingId', express.raw({ type: () => true, limit: '1
   }
 });
 
+// AI: translate a caption/snippet (used by the interpreter assist panel).
+app.post('/api/ai/translate', async (req, res) => {
+  const { text, to } = req.body || {};
+  const out = await ai.translate(text || '', to || 'es');
+  res.json(out);
+});
+
+// AI: generate a hearing summary for the judge from the transcript.
+app.post('/api/ai/summarize', async (req, res) => {
+  const h = findHearing((req.body || {}).hearingId);
+  if (!h) return res.status(404).json({ error: 'Unknown hearing' });
+  const out = await ai.summarize(h);
+  h.summary = out.summary;
+  audit('AI_SUMMARY', `Summary generated for ${h.hearingNumber} (${out.provider})`, (req.body && req.body.actor) || 'system');
+  broadcast();
+  res.json(out);
+});
+
+// Predictive wait-times for docket balancing.
+app.get('/api/predictions', (req, res) => res.json(computePredictions()));
+
 // List saved recordings.
 app.get('/api/recordings', (req, res) => {
   try {
@@ -533,6 +621,7 @@ io.on('connection', (socket) => {
       return;
     }
     h.status = recall ? WR_STATUS.RECALLED : WR_STATUS.CALLED;
+    if (!h.calledAt) h.calledAt = new Date().toISOString();
     audit(recall ? 'RECALL' : 'CALL', `${h.hearingNumber} ${recall ? 'recalled' : 'called'} by officer`, actor());
     pushToIES(h, recall ? 'recall' : 'call');
     broadcast();
@@ -557,6 +646,7 @@ io.on('connection', (socket) => {
     if (!h) return;
     // [INTEGRATION] Cisco WebEx / CMR conference would be provisioned here.
     h.conferenceUrl = `https://nysits.webex.example/meet/${h.id.toLowerCase()}`;
+    if (!h.startedAt) h.startedAt = new Date().toISOString();
     if (h.status === WR_STATUS.READY) h.status = WR_STATUS.CALLED;
     audit('START_HEARING', `Conference launched for ${h.hearingNumber}`, actor());
     pushToIES(h, 'conference launched');
@@ -592,6 +682,7 @@ io.on('connection', (socket) => {
     h.status = WR_STATUS.CLOSED;
     h.disposition = disposition || 'Completed';
     h.conferenceUrl = null;
+    h.closedAt = new Date().toISOString();
     audit('CLOSE', `${h.hearingNumber} closed (${h.disposition})`, actor());
     pushToIES(h, 'hearing closed');
     broadcast();
@@ -661,12 +752,166 @@ io.on('connection', (socket) => {
     audit('CONF_REC', `Recording ${on ? 'started' : 'stopped'} for ${hearingId}`, actor());
   });
 
+  // Live captions (browser Web Speech API). Broadcast to the room; on final
+  // results, append to the hearing transcript (used for AI summaries).
+  socket.on('conf:caption', ({ hearingId, text, final }) => {
+    const u = socket.data.confUser;
+    if (!u || !text) return;
+    const payload = { id: u.id, from: u.name, role: u.role, text: String(text).slice(0, 500), final: !!final, ts: new Date().toISOString() };
+    io.to(`conf:${hearingId}`).emit('conf:caption', payload);
+    if (final) {
+      const h = findHearing(hearingId);
+      if (h) {
+        h.transcript.push({ from: payload.from, role: payload.role, text: payload.text, ts: payload.ts });
+        if (h.transcript.length > 1000) h.transcript.shift();
+      }
+    }
+  });
+
   socket.on('disconnect', () => leaveConf(socket));
 });
 
 server.listen(PORT, () => {
-  console.log(`\n  NYS Virtual Waiting Room running at  http://localhost:${PORT}\n`);
+  console.log(`\n  NYS Virtual Waiting Room running at  http://localhost:${PORT}`);
+  console.log(`  AI features: ${ai.HAS_AI ? 'Anthropic (live)' : 'demo fallback (set ANTHROPIC_API_KEY for real AI)'}`);
+  if (ai.HAS_AI && typeof fetch !== 'function') {
+    console.warn('  [warn] ANTHROPIC_API_KEY is set but global fetch is unavailable — upgrade to Node 18+ for AI calls.');
+  }
+  console.log('');
 });
+```
+
+## `ai.js`
+
+```js
+/**
+ * AI services for the VWR — provider-optional.
+ *
+ * If ANTHROPIC_API_KEY is set, translation and summaries use the Anthropic API
+ * (real AI). Otherwise they fall back to deterministic, offline behavior so the
+ * demo still works with zero configuration. Live captions are produced in the
+ * browser (Web Speech API); this module handles translation + summaries.
+ *
+ * No SDK dependency — uses the global fetch in Node 18+.
+ */
+
+const API_KEY = process.env.ANTHROPIC_API_KEY || '';
+const MODEL = process.env.ANTHROPIC_MODEL || 'claude-haiku-4-5-20251001';
+const HAS_AI = !!API_KEY;
+
+async function callClaude(system, user, maxTokens = 600) {
+  if (!HAS_AI) return null;
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': API_KEY,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: maxTokens,
+        system,
+        messages: [{ role: 'user', content: user }],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return (data.content || []).map((b) => b.text || '').join('').trim() || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ * Translation
+ * ------------------------------------------------------------------ */
+
+const LANGS = { en: 'English', es: 'Spanish', fr: 'French', zh: 'Chinese', ru: 'Russian', ar: 'Arabic', bn: 'Bengali', ht: 'Haitian Creole' };
+
+// Tiny offline phrase map for the demo fallback (EN <-> ES), lowercase keys.
+const DEMO_DICT = {
+  es: {
+    'hello': 'hola', 'good morning': 'buenos días', 'good afternoon': 'buenas tardes',
+    'please': 'por favor', 'thank you': 'gracias', 'yes': 'sí', 'no': 'no',
+    'the hearing will begin shortly': 'la audiencia comenzará en breve',
+    'please state your name': 'por favor diga su nombre',
+    'can you hear me': '¿puede oírme?', 'do you understand': '¿entiende usted?',
+    'are you ready': '¿está usted listo?', 'the hearing is now in session': 'la audiencia está ahora en sesión',
+    'please wait': 'por favor espere', 'we are ready': 'estamos listos',
+  },
+  en: {
+    'hola': 'hello', 'buenos días': 'good morning', 'gracias': 'thank you',
+    'sí': 'yes', 'no': 'no', 'por favor': 'please', 'estoy listo': 'i am ready',
+    '¿puede oírme?': 'can you hear me?', 'no entiendo': 'i do not understand',
+  },
+};
+
+function demoTranslate(text, to) {
+  const dict = DEMO_DICT[to] || {};
+  const key = text.trim().toLowerCase().replace(/[.!?]+$/, '');
+  if (dict[key]) return dict[key];
+  // word-by-word best effort, else echo with a tag
+  const words = key.split(/\s+/).map((w) => dict[w] || w);
+  const guess = words.join(' ');
+  return guess === key ? `${text}  ⟨${(LANGS[to] || to)} — demo⟩` : guess;
+}
+
+async function translate(text, to = 'es') {
+  if (!text) return { translation: '', provider: 'none' };
+  const ai = await callClaude(
+    `You are a real-time court-interpreter translation engine. Translate the user's text into ${LANGS[to] || to}. Output ONLY the translation, no quotes or notes.`,
+    text, 300
+  );
+  if (ai) return { translation: ai, provider: 'anthropic' };
+  return { translation: demoTranslate(text, to), provider: 'demo' };
+}
+
+/* ------------------------------------------------------------------ *
+ * Hearing summary
+ * ------------------------------------------------------------------ */
+
+function transcriptText(transcript) {
+  return (transcript || []).map((t) => `${t.from} (${t.role}): ${t.text}`).join('\n');
+}
+
+async function summarize(hearing) {
+  const t = hearing.transcript || [];
+  const meta =
+    `Hearing ${hearing.hearingNumber} — ${hearing.hearingType} (${hearing.agency}). ` +
+    `Appellant: ${hearing.appellantName}. Category of aid: ${hearing.categoryOfAid}. ` +
+    `Disposition: ${hearing.disposition || 'n/a'}.`;
+  const body = transcriptText(t);
+
+  const ai = await callClaude(
+    'You are an assistant to a New York State Administrative Law Judge. Produce a concise, neutral hearing summary in Markdown with these sections: **Issue on Appeal**, **Parties Present**, **Key Points**, **Next Steps**. Base it ONLY on the transcript and metadata; do not invent facts. If the transcript is sparse, say so.',
+    `${meta}\n\nTranscript:\n${body || '(no transcript captured)'}`,
+    700
+  );
+  if (ai) return { summary: ai, provider: 'anthropic' };
+
+  // Deterministic extractive fallback
+  const speakers = [...new Set(t.map((x) => `${x.from} (${x.role})`))];
+  const head = t.slice(0, 3).map((x) => `- ${x.from}: ${x.text}`);
+  const tail = t.slice(-3).map((x) => `- ${x.from}: ${x.text}`);
+  const lines = [
+    `### Hearing Summary — ${hearing.hearingNumber} (auto-generated)`,
+    '',
+    `**Issue on Appeal:** ${hearing.hearingType} — ${hearing.categoryOfAid} (${hearing.agency}).`,
+    `**Parties Present:** ${speakers.length ? speakers.join(', ') : 'No transcript captured.'}`,
+    `**Disposition:** ${hearing.disposition || 'Not recorded.'}`,
+    '',
+    '**Key Points:**',
+    ...(head.length ? head : ['- (no statements transcribed)']),
+    ...(t.length > 6 ? ['- …', ...tail] : []),
+    '',
+    '_Extractive summary. Set ANTHROPIC_API_KEY for an AI-generated summary._',
+  ];
+  return { summary: lines.join('\n'), provider: 'demo' };
+}
+
+module.exports = { translate, summarize, LANGS, HAS_AI };
 ```
 
 ## `public/index.html`
@@ -780,7 +1025,15 @@ server.listen(PORT, () => {
     </div>
 
     <div class="conf-main">
-      <div class="conf-stage" id="conf-stage" aria-label="Participant video"></div>
+      <div class="conf-stage-wrap">
+        <div class="conf-stage" id="conf-stage" aria-label="Participant video"></div>
+
+        <!-- Live captions / interpreter translation overlay -->
+        <div id="conf-captions" class="conf-captions hidden" aria-live="polite">
+          <div class="cap-line" id="cap-original"></div>
+          <div class="cap-line cap-translated hidden" id="cap-translated"></div>
+        </div>
+      </div>
 
       <aside id="conf-chat" class="conf-chat hidden" aria-label="In-hearing chat">
         <div class="conf-chat-head">In-hearing Chat</div>
@@ -796,6 +1049,16 @@ server.listen(PORT, () => {
       <button id="c-mic" class="cbtn" type="button"><span>Mute</span></button>
       <button id="c-cam" class="cbtn" type="button"><span>Stop Video</span></button>
       <button id="c-share" class="cbtn" type="button"><span>Share</span></button>
+      <button id="c-cc" class="cbtn" type="button" title="Live captions"><span>Captions</span></button>
+      <select id="cap-lang" class="cap-lang" title="Translate captions to…" aria-label="Caption language">
+        <option value="">No translation</option>
+        <option value="es">Spanish</option>
+        <option value="en">English</option>
+        <option value="fr">French</option>
+        <option value="zh">Chinese</option>
+        <option value="ru">Russian</option>
+        <option value="ht">Haitian Creole</option>
+      </select>
       <button id="c-chat" class="cbtn" type="button"><span>Chat</span></button>
       <button id="c-rec" class="cbtn hidden" type="button"><span>Record</span></button>
       <button id="c-leave" class="cbtn cbtn-leave" type="button"><span>Leave</span></button>
@@ -1019,6 +1282,23 @@ nys-globalheader { display: block; width: 100%; }
 .row-called, .row-recalled { background: #f0f6fc; }
 .row-closed { color: var(--muted); }
 
+/* ---------- AI features: wait chip, summary, prediction banner ---------- */
+.wait-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: .74rem; font-weight: 700;
+  color: var(--nys-blue); background: var(--nys-color-theme-weaker, #eff6fb);
+  border: 1px solid var(--nys-color-theme-weak, #cddde9); border-radius: 999px; padding: 2px 9px;
+}
+.wait-chip.in-progress { color: var(--green); background: #f0faf3; border-color: #bfe8cf; }
+
+.summary-box { border: 1px solid var(--line); border-radius: 8px; margin-top: 4px; overflow: hidden; }
+.summary-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--bg); padding: 7px 10px; font-weight: 700; font-size: .82rem; color: var(--nys-blue); }
+.summary-body { padding: 10px 12px; font-size: .85rem; line-height: 1.5; max-height: 260px; overflow: auto; }
+.summary-body strong { color: var(--nys-blue); }
+.summary-empty { padding: 10px 12px; font-size: .8rem; }
+
+.pred-banner { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; background: #fff; border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; box-shadow: var(--shadow); font-size: .85rem; }
+.pred-suggest { color: var(--amber); font-weight: 600; }
+
 /* ---------- Recordings panel (supervisor) ---------- */
 .rec-panel { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 12px; overflow: hidden; }
 .rec-panel-head { display: flex; align-items: center; gap: 8px; background: var(--nys-blue); color: #fff; padding: 10px 14px; font-weight: 700; font-size: .9rem; }
@@ -1069,6 +1349,21 @@ body.conf-open { overflow: hidden; }
 .conf-count { background: #21262d; padding: 3px 10px; border-radius: 999px; color: #c9d4df; }
 
 .conf-main { flex: 1; display: flex; min-height: 0; }
+.conf-stage-wrap { position: relative; flex: 1; display: flex; min-height: 0; }
+
+/* Live captions / translation overlay */
+.conf-captions {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px;
+  max-width: min(880px, 92%); width: max-content; z-index: 6;
+  background: rgba(0,0,0,.72); color: #fff; border-radius: 10px; padding: 10px 16px;
+  text-align: center; pointer-events: none;
+}
+.cap-line { font-size: 1.05rem; line-height: 1.4; }
+.cap-translated { color: var(--nys-gold); font-style: italic; margin-top: 4px; }
+.cap-lang {
+  font: inherit; font-size: .8rem; background: #21262d; color: #e6edf3;
+  border: 1px solid #30363d; border-radius: 8px; padding: 6px 8px; align-self: center;
+}
 .conf-stage {
   flex: 1; display: grid; gap: 10px; padding: 14px; overflow: auto;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-content: start;
@@ -1322,6 +1617,17 @@ body.conf-open { overflow: hidden; }
     return h.participants.find((p) => p.userId === session.sub);
   }
 
+  function predFor(h) {
+    return (state.predictions && state.predictions.perHearing && state.predictions.perHearing[h.id]) || null;
+  }
+  function waitChip(h) {
+    const p = predFor(h);
+    if (!p || h.status === 'closed') return '';
+    if (p.inProgress) return `<span class="wait-chip in-progress"><nys-icon name="phone_in_talk" size="xs"></nys-icon> In progress</span>`;
+    const m = p.estimatedWaitMin;
+    return `<span class="wait-chip"><nys-icon name="progress_activity" size="xs"></nys-icon> Est. wait ~${m} min</span>`;
+  }
+
   /* ---- Participant-style card (appellant, rep, agency, witness, interpreter) ---- */
 
   function renderCard(h, role) {
@@ -1356,9 +1662,11 @@ body.conf-open { overflow: hidden; }
           <span><b>Time:</b> ${h.scheduledTime}</span>
           <span><b>Aid:</b> ${h.categoryOfAid}</span>
           ${h.disposition ? `<span><b>Disposition:</b> ${h.disposition}</span>` : ''}
+          ${waitChip(h)}
         </div>
         ${myControls}
         ${officerControls}
+        ${isOfficer ? renderSummary(h) : ''}
         <div class="card-participants">${participantsHtml}</div>
         ${h.conferenceUrl ? `<button class="conf-link" data-act="joinconf" data-h="${h.id}" data-hn="${h.hearingNumber}" data-host="${isOfficer && h.assignedOfficerId === session.sub ? '1' : '0'}"><nys-icon name="phone_in_talk" size="sm"></nys-icon> Join Virtual Hearing (In-house Video)</button>` : ''}
       </article>`;
@@ -1443,6 +1751,30 @@ body.conf-open { overflow: hidden; }
     </div>`;
   }
 
+  function renderSummary(h) {
+    const has = !!h.summary;
+    const hasTranscript = (h.transcript && h.transcript.length) ? `${h.transcript.length} caption lines` : 'no captions yet';
+    return `
+      <div class="summary-box">
+        <div class="summary-head">
+          <span><nys-icon name="edit_square" size="sm"></nys-icon> AI Hearing Summary</span>
+          <button class="btn btn-ghost btn-xs" data-act="gensummary" data-h="${h.id}">${has ? 'Regenerate' : 'Generate'}</button>
+        </div>
+        ${has
+          ? `<div class="summary-body">${mdLite(h.summary)}</div>`
+          : `<div class="muted summary-empty">Generates a structured summary from the transcript (${hasTranscript}).</div>`}
+      </div>`;
+  }
+
+  // Minimal, safe Markdown-ish rendering (escape, then bold + headings + line breaks).
+  function mdLite(s) {
+    const esc = String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return esc
+      .replace(/^### (.*)$/gm, '<strong>$1</strong>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+  }
+
   /* ---- Supervisor / admin table (spec §6c) ---- */
 
   function renderSupervisor(list) {
@@ -1456,6 +1788,8 @@ body.conf-open { overflow: hidden; }
 
     const rows = list.map((h) => {
       const checkedIn = h.participants.filter((p) => p.checkedIn).length;
+      const pr = predFor(h);
+      const wait = h.status === 'closed' ? '—' : pr ? (pr.inProgress ? 'in progress' : `~${pr.estimatedWaitMin} min`) : '—';
       return `
         <tr class="row-${h.status}">
           <td>${h.scheduledTime}</td>
@@ -1465,7 +1799,8 @@ body.conf-open { overflow: hidden; }
           <td>${officerName(h.assignedOfficerId)}</td>
           <td>${statusBadge(h.status)}</td>
           <td>${checkedIn}/${h.participants.length}</td>
-          <td>${h.disposition || '—'}</td>
+          <td>${wait}</td>
+          <td>${h.summary ? '<nys-icon name="edit_square" size="sm" title="Summary available"></nys-icon> ' : ''}${h.disposition || '—'}</td>
         </tr>`;
     }).join('');
 
@@ -1479,9 +1814,13 @@ body.conf-open { overflow: hidden; }
         <div id="rec-list" class="rec-list">Loading recordings…</div>
       </div>
       ${banner}
+      <div class="pred-banner">
+        <span><nys-icon name="progress_activity" size="sm"></nys-icon> <b>Docket prediction:</b> avg hearing ≈ ${(state.predictions || {}).avgDurationMin || '—'} min.</span>
+        ${((state.predictions || {}).suggestions || []).map((s) => `<span class="pred-suggest">⚖ ${s}</span>`).join('')}
+      </div>
       <table class="sup-table">
         <thead>
-          <tr><th>Time</th><th>Hearing</th><th>Appellant</th><th>Agency / Aid</th><th>Officer</th><th>Status</th><th>Checked In</th><th>Disposition</th></tr>
+          <tr><th>Time</th><th>Hearing</th><th>Appellant</th><th>Agency / Aid</th><th>Officer</th><th>Status</th><th>Checked In</th><th>Est. wait</th><th>Disposition</th></tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>`;
@@ -1526,6 +1865,14 @@ body.conf-open { overflow: hidden; }
         el.onclick = () => window.VWRConf.join(el.dataset.h, el.dataset.hn, el.dataset.host === '1');
       } else if (a === 'refreshrec') {
         el.onclick = () => loadRecordings();
+      } else if (a === 'gensummary') {
+        el.onclick = () => {
+          el.textContent = 'Generating…';
+          fetch('/api/ai/summarize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hearingId: el.dataset.h, actor: session.name }) })
+            .then((r) => r.json())
+            .then((d) => toast(`Summary ready (${d.provider === 'anthropic' ? 'AI' : 'demo'}).`, 'info'))
+            .catch(() => toast('Summary failed.', 'error'));
+        };
       }
     });
   }
@@ -1671,6 +2018,9 @@ body.conf-open { overflow: hidden; }
       recRAF = 0, recAudioCtx = null, recDest = null, recConnected = null,
       recMime = '', recStart = null;
 
+  // Captions / translation state
+  let recognition = null, captionsOn = false, capLang = '', capHideTimer = 0;
+
   const $ = (id) => document.getElementById(id);
 
   /* Audio/video control icons. NYSDS ships 80 icons but none of the
@@ -1729,6 +2079,7 @@ body.conf-open { overflow: hidden; }
   function leave() {
     if (!current) return;
     if (recording) { recording = false; socket.emit('conf:rec', { hearingId: current.hearingId, on: false }); stopRecording(); }
+    if (captionsOn) { captionsOn = false; stopRecognition(); }
     socket.emit('conf:leave');
     Object.keys(peers).forEach(removePeer);
     if (localStream) localStream.getTracks().forEach((t) => t.stop());
@@ -1781,6 +2132,7 @@ body.conf-open { overflow: hidden; }
     socket.on('conf:force-mute', () => { if (micOn) toggleMic(); toast('You were muted by the Hearing Officer.'); });
     socket.on('conf:force-remove', () => { toast('You were removed from the hearing.'); leave(); });
     socket.on('conf:rec', ({ on }) => setRecIndicator(on));
+    socket.on('conf:caption', showCaption);
   }
 
   function createPeer(peerId, info, initiator) {
@@ -2042,6 +2394,66 @@ body.conf-open { overflow: hidden; }
     el.innerHTML = `${icon}<span>${label}</span>`;
   }
 
+  /* ----------------------------- Captions / translation ----------------------------- */
+
+  function toggleCaptions() {
+    captionsOn = !captionsOn;
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (captionsOn && !SR) {
+      captionsOn = false;
+      toast('Live captions need Chrome or Edge (Web Speech API).');
+      return;
+    }
+    setBtn('c-cc', captionsOn, svg('chat'), captionsOn ? 'Captions On' : 'Captions');
+    $('conf-captions').classList.toggle('hidden', !captionsOn);
+    if (captionsOn) startRecognition(); else stopRecognition();
+  }
+
+  function startRecognition() {
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SR || recognition) return;
+    recognition = new SR();
+    recognition.continuous = true;
+    recognition.interimResults = true;
+    recognition.lang = 'en-US';
+    recognition.onresult = (e) => {
+      let interim = '', finalText = '';
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const r = e.results[i];
+        if (r.isFinal) finalText += r[0].transcript; else interim += r[0].transcript;
+      }
+      if (interim) socket.emit('conf:caption', { hearingId: current.hearingId, text: interim, final: false });
+      if (finalText) socket.emit('conf:caption', { hearingId: current.hearingId, text: finalText.trim(), final: true });
+    };
+    recognition.onend = () => { if (captionsOn) { try { recognition.start(); } catch (_) {} } };
+    try { recognition.start(); } catch (_) {}
+  }
+  function stopRecognition() {
+    if (!recognition) return;
+    const r = recognition; recognition = null;
+    try { r.onend = null; r.stop(); } catch (_) {}
+  }
+
+  function showCaption({ from, role, text, final }) {
+    if (!captionsOn) { $('conf-captions').classList.remove('hidden'); captionsOn = true; setBtn('c-cc', true, svg('chat'), 'Captions On'); }
+    const orig = $('cap-original');
+    orig.textContent = `${from}: ${text}`;
+    // Auto-hide the overlay after a pause of silence
+    clearTimeout(capHideTimer);
+    capHideTimer = setTimeout(() => { orig.textContent = ''; $('cap-translated').textContent = ''; }, 6000);
+    // Interpreter assist: translate FINAL captions if a target language is chosen
+    const tr = $('cap-translated');
+    if (final && capLang) {
+      fetch('/api/ai/translate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text, to: capLang }) })
+        .then((r) => r.json()).then((d) => {
+          tr.classList.remove('hidden');
+          tr.textContent = `↳ ${d.translation}`;
+        }).catch(() => {});
+    } else if (!capLang) {
+      tr.classList.add('hidden');
+    }
+  }
+
   /* ----------------------------- Chat ----------------------------- */
 
   function addChat({ from, role, text, ts }) {
@@ -2064,6 +2476,11 @@ body.conf-open { overflow: hidden; }
     $('c-share').onclick = toggleShare;
     $('c-rec').onclick = toggleRecording;
     $('c-leave').onclick = leave;
+    $('c-cc').onclick = toggleCaptions;
+    $('cap-lang').onchange = (e) => {
+      capLang = e.target.value;
+      if (!capLang) $('cap-translated').classList.add('hidden');
+    };
     $('c-chat').onclick = () => $('conf-chat').classList.toggle('hidden');
     $('conf-chat-form').onsubmit = (e) => {
       e.preventDefault();

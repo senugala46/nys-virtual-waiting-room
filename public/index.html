@@ -106,7 +106,15 @@
     </div>
 
     <div class="conf-main">
-      <div class="conf-stage" id="conf-stage" aria-label="Participant video"></div>
+      <div class="conf-stage-wrap">
+        <div class="conf-stage" id="conf-stage" aria-label="Participant video"></div>
+
+        <!-- Live captions / interpreter translation overlay -->
+        <div id="conf-captions" class="conf-captions hidden" aria-live="polite">
+          <div class="cap-line" id="cap-original"></div>
+          <div class="cap-line cap-translated hidden" id="cap-translated"></div>
+        </div>
+      </div>
 
       <aside id="conf-chat" class="conf-chat hidden" aria-label="In-hearing chat">
         <div class="conf-chat-head">In-hearing Chat</div>
@@ -122,6 +130,16 @@
       <button id="c-mic" class="cbtn" type="button"><span>Mute</span></button>
       <button id="c-cam" class="cbtn" type="button"><span>Stop Video</span></button>
       <button id="c-share" class="cbtn" type="button"><span>Share</span></button>
+      <button id="c-cc" class="cbtn" type="button" title="Live captions"><span>Captions</span></button>
+      <select id="cap-lang" class="cap-lang" title="Translate captions to…" aria-label="Caption language">
+        <option value="">No translation</option>
+        <option value="es">Spanish</option>
+        <option value="en">English</option>
+        <option value="fr">French</option>
+        <option value="zh">Chinese</option>
+        <option value="ru">Russian</option>
+        <option value="ht">Haitian Creole</option>
+      </select>
       <button id="c-chat" class="cbtn" type="button"><span>Chat</span></button>
       <button id="c-rec" class="cbtn hidden" type="button"><span>Record</span></button>
       <button id="c-leave" class="cbtn cbtn-leave" type="button"><span>Leave</span></button>

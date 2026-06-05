@@ -168,6 +168,18 @@ Currently the only runtime knob is the port:
 PORT=8080 npm start
 ```
 
+**AI features (optional):** live captions use the browser Web Speech API (Chrome/Edge, no key).
+Translation and hearing summaries are **provider-optional**:
+
+```bash
+ANTHROPIC_API_KEY=sk-ant-...  npm start   # enables real AI translation + summaries
+```
+
+Without the key they fall back to deterministic demo behavior. The real-AI path requires
+**Node 18+** (uses global `fetch`); the demo fallback works on Node 16. Optional:
+`ANTHROPIC_MODEL` (defaults to a fast model). Predictive wait-times are a built-in heuristic and
+need no key.
+
 There are no other required environment variables — the app is self-contained. (Real SSO, a
 database, TURN/SFU, and storage config would be added when moving toward production.)
 

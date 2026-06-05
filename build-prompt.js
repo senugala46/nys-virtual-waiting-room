@@ -13,6 +13,7 @@ const ROOT = __dirname;
 const FILES = [
   { p: 'package.json',         lang: 'json' },
   { p: 'server.js',            lang: 'js'   },
+  { p: 'ai.js',                lang: 'js'   },
   { p: 'public/index.html',    lang: 'html' },
   { p: 'public/styles.css',    lang: 'css'  },
   { p: 'public/app.js',        lang: 'js'   },

@@ -37,6 +37,8 @@ Single Node process. **`server.js`** is Express + Socket.io with an **in-memory 
 
 **Integration seams are stubbed and marked `[INTEGRATION]`** in `server.js`: ITS IAM SSO (mock `POST /api/login`), IES read (`seedData()`), IES write-back (`pushToIES()` → audit log), and conferencing (replaced by the in-house module).
 
+**AI features (`ai.js`) are provider-optional.** Live captions are produced **in the browser** via the Web Speech API (`conference.js`), broadcast as `conf:caption`, and final results accumulate into `hearing.transcript`. Translation (interpreter assist) and hearing summaries go through `ai.js`, which calls the **Anthropic API only if `ANTHROPIC_API_KEY` is set** (uses global `fetch`, so Node 18+); otherwise it returns deterministic fallbacks (a small phrase map / an extractive summary) so the demo works offline. Predictive wait-times (`computePredictions` in `server.js`) are a **pure heuristic** — learned avg hearing duration × queue position per officer — included in the state snapshot and surfaced in the supervisor view. When touching these, keep the no-key fallback working.
+
 ## NYSDS — two non-obvious constraints (do not "fix" these)
 
 The app uses the New York State Design System. `index.html` loads two specific builds, and switching either one silently breaks the UI:

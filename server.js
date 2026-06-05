@@ -20,6 +20,7 @@ const fs = require('fs');
 const http = require('http');
 const express = require('express');
 const { Server } = require('socket.io');
+const ai = require('./ai');
 
 const app = express();
 const server = http.createServer(app);
@@ -108,6 +109,9 @@ function seedData() {
     status: WR_STATUS.NOT_CHECKED_IN,
     disposition: null,
     conferenceUrl: null,
+    transcript: [],          // [{ from, role, text, ts }] — from live captions
+    summary: null,           // AI/extractive hearing summary
+    calledAt: null, startedAt: null, closedAt: null, // for wait-time prediction
     participants: p.participants.map((pp) => ({
       userId: pp.userId,
       name: pp.name,
@@ -249,11 +253,70 @@ function pushToIES(h, reason) {
  * Snapshot + broadcast
  * ------------------------------------------------------------------ */
 
+/* ------------------------------------------------------------------ *
+ * Predictive wait-times for docket balancing (heuristic, no AI needed)
+ * ------------------------------------------------------------------ */
+
+const DEFAULT_DURATION_MIN = 20;
+
+function computePredictions() {
+  // Learn average hearing duration from completed hearings; fall back to default.
+  const durations = hearings
+    .filter((h) => h.startedAt && h.closedAt)
+    .map((h) => (new Date(h.closedAt) - new Date(h.startedAt)) / 60000)
+    .filter((d) => d > 0 && d < 240);
+  const avg = durations.length
+    ? durations.reduce((a, b) => a + b, 0) / durations.length
+    : DEFAULT_DURATION_MIN;
+
+  const now = Date.now();
+  const perHearing = {};
+  const officerLoad = {};
+
+  // Group active queue by officer (exclude closed).
+  const byOfficer = {};
+  hearings.forEach((h) => {
+    const o = h.assignedOfficerId || 'unassigned';
+    (byOfficer[o] = byOfficer[o] || []).push(h);
+    if (h.status !== WR_STATUS.CLOSED) officerLoad[o] = (officerLoad[o] || 0) + 1;
+  });
+
+  for (const [officer, list] of Object.entries(byOfficer)) {
+    const active = list.find((h) => h.status === WR_STATUS.CALLED || h.status === WR_STATUS.RECALLED);
+    const elapsed = active && active.startedAt ? (now - new Date(active.startedAt)) / 60000 : 0;
+    let cumulative = active ? Math.max(0, avg - elapsed) : 0; // remaining on the in-progress one
+    if (active) perHearing[active.id] = { estimatedWaitMin: 0, inProgress: true, officer };
+
+    list
+      .filter((h) => h.status !== WR_STATUS.CLOSED && h !== active)
+      .sort((a, b) => a.scheduledTime.localeCompare(b.scheduledTime))
+      .forEach((h) => {
+        perHearing[h.id] = { estimatedWaitMin: Math.round(cumulative), inProgress: false, officer };
+        cumulative += avg;
+      });
+  }
+
+  // Docket-balancing suggestions: move from the busiest officer to the lightest.
+  const officers = Object.entries(officerLoad).filter(([o]) => o !== 'unassigned');
+  const suggestions = [];
+  if (officers.length >= 2) {
+    officers.sort((a, b) => b[1] - a[1]);
+    const [busy, bN] = officers[0];
+    const [light, lN] = officers[officers.length - 1];
+    if (bN - lN >= 2) {
+      suggestions.push(`Rebalance: ${officerName(busy)} has ${bN} open hearings vs ${officerName(light)} with ${lN}. Consider reassigning one.`);
+    }
+  }
+
+  return { avgDurationMin: Math.round(avg), perHearing, officerLoad, suggestions, generatedAt: new Date().toISOString() };
+}
+
 function snapshot() {
   recomputeAll();
   return {
     hearings,
     auditLog: auditLog.slice(0, 50),
+    predictions: computePredictions(),
     serverTime: new Date().toISOString(),
   };
 }
@@ -271,6 +334,10 @@ function findHearing(id) {
 }
 function findParticipant(h, userId) {
   return h && h.participants.find((p) => p.userId === userId);
+}
+function officerName(id) {
+  const o = directory.find((u) => u.userId === id);
+  return o ? o.name : (id || 'Unassigned');
 }
 
 // Enforce: a Hearing Officer may attend only ONE active hearing at a time (spec §6b.i)
@@ -375,6 +442,27 @@ app.post('/api/recordings/:hearingId', express.raw({ type: () => true, limit: '1
   }
 });
 
+// AI: translate a caption/snippet (used by the interpreter assist panel).
+app.post('/api/ai/translate', async (req, res) => {
+  const { text, to } = req.body || {};
+  const out = await ai.translate(text || '', to || 'es');
+  res.json(out);
+});
+
+// AI: generate a hearing summary for the judge from the transcript.
+app.post('/api/ai/summarize', async (req, res) => {
+  const h = findHearing((req.body || {}).hearingId);
+  if (!h) return res.status(404).json({ error: 'Unknown hearing' });
+  const out = await ai.summarize(h);
+  h.summary = out.summary;
+  audit('AI_SUMMARY', `Summary generated for ${h.hearingNumber} (${out.provider})`, (req.body && req.body.actor) || 'system');
+  broadcast();
+  res.json(out);
+});
+
+// Predictive wait-times for docket balancing.
+app.get('/api/predictions', (req, res) => res.json(computePredictions()));
+
 // List saved recordings.
 app.get('/api/recordings', (req, res) => {
   try {
@@ -458,6 +546,7 @@ io.on('connection', (socket) => {
       return;
     }
     h.status = recall ? WR_STATUS.RECALLED : WR_STATUS.CALLED;
+    if (!h.calledAt) h.calledAt = new Date().toISOString();
     audit(recall ? 'RECALL' : 'CALL', `${h.hearingNumber} ${recall ? 'recalled' : 'called'} by officer`, actor());
     pushToIES(h, recall ? 'recall' : 'call');
     broadcast();
@@ -482,6 +571,7 @@ io.on('connection', (socket) => {
     if (!h) return;
     // [INTEGRATION] Cisco WebEx / CMR conference would be provisioned here.
     h.conferenceUrl = `https://nysits.webex.example/meet/${h.id.toLowerCase()}`;
+    if (!h.startedAt) h.startedAt = new Date().toISOString();
     if (h.status === WR_STATUS.READY) h.status = WR_STATUS.CALLED;
     audit('START_HEARING', `Conference launched for ${h.hearingNumber}`, actor());
     pushToIES(h, 'conference launched');
@@ -517,6 +607,7 @@ io.on('connection', (socket) => {
     h.status = WR_STATUS.CLOSED;
     h.disposition = disposition || 'Completed';
     h.conferenceUrl = null;
+    h.closedAt = new Date().toISOString();
     audit('CLOSE', `${h.hearingNumber} closed (${h.disposition})`, actor());
     pushToIES(h, 'hearing closed');
     broadcast();
@@ -586,9 +677,30 @@ io.on('connection', (socket) => {
     audit('CONF_REC', `Recording ${on ? 'started' : 'stopped'} for ${hearingId}`, actor());
   });
 
+  // Live captions (browser Web Speech API). Broadcast to the room; on final
+  // results, append to the hearing transcript (used for AI summaries).
+  socket.on('conf:caption', ({ hearingId, text, final }) => {
+    const u = socket.data.confUser;
+    if (!u || !text) return;
+    const payload = { id: u.id, from: u.name, role: u.role, text: String(text).slice(0, 500), final: !!final, ts: new Date().toISOString() };
+    io.to(`conf:${hearingId}`).emit('conf:caption', payload);
+    if (final) {
+      const h = findHearing(hearingId);
+      if (h) {
+        h.transcript.push({ from: payload.from, role: payload.role, text: payload.text, ts: payload.ts });
+        if (h.transcript.length > 1000) h.transcript.shift();
+      }
+    }
+  });
+
   socket.on('disconnect', () => leaveConf(socket));
 });
 
 server.listen(PORT, () => {
-  console.log(`\n  NYS Virtual Waiting Room running at  http://localhost:${PORT}\n`);
+  console.log(`\n  NYS Virtual Waiting Room running at  http://localhost:${PORT}`);
+  console.log(`  AI features: ${ai.HAS_AI ? 'Anthropic (live)' : 'demo fallback (set ANTHROPIC_API_KEY for real AI)'}`);
+  if (ai.HAS_AI && typeof fetch !== 'function') {
+    console.warn('  [warn] ANTHROPIC_API_KEY is set but global fetch is unavailable — upgrade to Node 18+ for AI calls.');
+  }
+  console.log('');
 });

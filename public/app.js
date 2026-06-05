@@ -172,6 +172,17 @@
     return h.participants.find((p) => p.userId === session.sub);
   }
 
+  function predFor(h) {
+    return (state.predictions && state.predictions.perHearing && state.predictions.perHearing[h.id]) || null;
+  }
+  function waitChip(h) {
+    const p = predFor(h);
+    if (!p || h.status === 'closed') return '';
+    if (p.inProgress) return `<span class="wait-chip in-progress"><nys-icon name="phone_in_talk" size="xs"></nys-icon> In progress</span>`;
+    const m = p.estimatedWaitMin;
+    return `<span class="wait-chip"><nys-icon name="progress_activity" size="xs"></nys-icon> Est. wait ~${m} min</span>`;
+  }
+
   /* ---- Participant-style card (appellant, rep, agency, witness, interpreter) ---- */
 
   function renderCard(h, role) {
@@ -206,9 +217,11 @@
           <span><b>Time:</b> ${h.scheduledTime}</span>
           <span><b>Aid:</b> ${h.categoryOfAid}</span>
           ${h.disposition ? `<span><b>Disposition:</b> ${h.disposition}</span>` : ''}
+          ${waitChip(h)}
         </div>
         ${myControls}
         ${officerControls}
+        ${isOfficer ? renderSummary(h) : ''}
         <div class="card-participants">${participantsHtml}</div>
         ${h.conferenceUrl ? `<button class="conf-link" data-act="joinconf" data-h="${h.id}" data-hn="${h.hearingNumber}" data-host="${isOfficer && h.assignedOfficerId === session.sub ? '1' : '0'}"><nys-icon name="phone_in_talk" size="sm"></nys-icon> Join Virtual Hearing (In-house Video)</button>` : ''}
       </article>`;
@@ -293,6 +306,30 @@
     </div>`;
   }
 
+  function renderSummary(h) {
+    const has = !!h.summary;
+    const hasTranscript = (h.transcript && h.transcript.length) ? `${h.transcript.length} caption lines` : 'no captions yet';
+    return `
+      <div class="summary-box">
+        <div class="summary-head">
+          <span><nys-icon name="edit_square" size="sm"></nys-icon> AI Hearing Summary</span>
+          <button class="btn btn-ghost btn-xs" data-act="gensummary" data-h="${h.id}">${has ? 'Regenerate' : 'Generate'}</button>
+        </div>
+        ${has
+          ? `<div class="summary-body">${mdLite(h.summary)}</div>`
+          : `<div class="muted summary-empty">Generates a structured summary from the transcript (${hasTranscript}).</div>`}
+      </div>`;
+  }
+
+  // Minimal, safe Markdown-ish rendering (escape, then bold + headings + line breaks).
+  function mdLite(s) {
+    const esc = String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return esc
+      .replace(/^### (.*)$/gm, '<strong>$1</strong>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/\n/g, '<br>');
+  }
+
   /* ---- Supervisor / admin table (spec §6c) ---- */
 
   function renderSupervisor(list) {
@@ -306,6 +343,8 @@
 
     const rows = list.map((h) => {
       const checkedIn = h.participants.filter((p) => p.checkedIn).length;
+      const pr = predFor(h);
+      const wait = h.status === 'closed' ? '—' : pr ? (pr.inProgress ? 'in progress' : `~${pr.estimatedWaitMin} min`) : '—';
       return `
         <tr class="row-${h.status}">
           <td>${h.scheduledTime}</td>
@@ -315,7 +354,8 @@
           <td>${officerName(h.assignedOfficerId)}</td>
           <td>${statusBadge(h.status)}</td>
           <td>${checkedIn}/${h.participants.length}</td>
-          <td>${h.disposition || '—'}</td>
+          <td>${wait}</td>
+          <td>${h.summary ? '<nys-icon name="edit_square" size="sm" title="Summary available"></nys-icon> ' : ''}${h.disposition || '—'}</td>
         </tr>`;
     }).join('');
 
@@ -329,9 +369,13 @@
         <div id="rec-list" class="rec-list">Loading recordings…</div>
       </div>
       ${banner}
+      <div class="pred-banner">
+        <span><nys-icon name="progress_activity" size="sm"></nys-icon> <b>Docket prediction:</b> avg hearing ≈ ${(state.predictions || {}).avgDurationMin || '—'} min.</span>
+        ${((state.predictions || {}).suggestions || []).map((s) => `<span class="pred-suggest">⚖ ${s}</span>`).join('')}
+      </div>
       <table class="sup-table">
         <thead>
-          <tr><th>Time</th><th>Hearing</th><th>Appellant</th><th>Agency / Aid</th><th>Officer</th><th>Status</th><th>Checked In</th><th>Disposition</th></tr>
+          <tr><th>Time</th><th>Hearing</th><th>Appellant</th><th>Agency / Aid</th><th>Officer</th><th>Status</th><th>Checked In</th><th>Est. wait</th><th>Disposition</th></tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>`;
@@ -376,6 +420,14 @@
         el.onclick = () => window.VWRConf.join(el.dataset.h, el.dataset.hn, el.dataset.host === '1');
       } else if (a === 'refreshrec') {
         el.onclick = () => loadRecordings();
+      } else if (a === 'gensummary') {
+        el.onclick = () => {
+          el.textContent = 'Generating…';
+          fetch('/api/ai/summarize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hearingId: el.dataset.h, actor: session.name }) })
+            .then((r) => r.json())
+            .then((d) => toast(`Summary ready (${d.provider === 'anthropic' ? 'AI' : 'demo'}).`, 'info'))
+            .catch(() => toast('Summary failed.', 'error'));
+        };
       }
     });
   }

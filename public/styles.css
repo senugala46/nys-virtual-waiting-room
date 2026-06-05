@@ -202,6 +202,23 @@ nys-globalheader { display: block; width: 100%; }
 .row-called, .row-recalled { background: #f0f6fc; }
 .row-closed { color: var(--muted); }
 
+/* ---------- AI features: wait chip, summary, prediction banner ---------- */
+.wait-chip {
+  display: inline-flex; align-items: center; gap: 4px; font-size: .74rem; font-weight: 700;
+  color: var(--nys-blue); background: var(--nys-color-theme-weaker, #eff6fb);
+  border: 1px solid var(--nys-color-theme-weak, #cddde9); border-radius: 999px; padding: 2px 9px;
+}
+.wait-chip.in-progress { color: var(--green); background: #f0faf3; border-color: #bfe8cf; }
+
+.summary-box { border: 1px solid var(--line); border-radius: 8px; margin-top: 4px; overflow: hidden; }
+.summary-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; background: var(--bg); padding: 7px 10px; font-weight: 700; font-size: .82rem; color: var(--nys-blue); }
+.summary-body { padding: 10px 12px; font-size: .85rem; line-height: 1.5; max-height: 260px; overflow: auto; }
+.summary-body strong { color: var(--nys-blue); }
+.summary-empty { padding: 10px 12px; font-size: .8rem; }
+
+.pred-banner { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; background: #fff; border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; box-shadow: var(--shadow); font-size: .85rem; }
+.pred-suggest { color: var(--amber); font-weight: 600; }
+
 /* ---------- Recordings panel (supervisor) ---------- */
 .rec-panel { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 12px; overflow: hidden; }
 .rec-panel-head { display: flex; align-items: center; gap: 8px; background: var(--nys-blue); color: #fff; padding: 10px 14px; font-weight: 700; font-size: .9rem; }
@@ -252,6 +269,21 @@ body.conf-open { overflow: hidden; }
 .conf-count { background: #21262d; padding: 3px 10px; border-radius: 999px; color: #c9d4df; }
 
 .conf-main { flex: 1; display: flex; min-height: 0; }
+.conf-stage-wrap { position: relative; flex: 1; display: flex; min-height: 0; }
+
+/* Live captions / translation overlay */
+.conf-captions {
+  position: absolute; left: 50%; transform: translateX(-50%); bottom: 14px;
+  max-width: min(880px, 92%); width: max-content; z-index: 6;
+  background: rgba(0,0,0,.72); color: #fff; border-radius: 10px; padding: 10px 16px;
+  text-align: center; pointer-events: none;
+}
+.cap-line { font-size: 1.05rem; line-height: 1.4; }
+.cap-translated { color: var(--nys-gold); font-style: italic; margin-top: 4px; }
+.cap-lang {
+  font: inherit; font-size: .8rem; background: #21262d; color: #e6edf3;
+  border: 1px solid #30363d; border-radius: 8px; padding: 6px 8px; align-self: center;
+}
 .conf-stage {
   flex: 1; display: grid; gap: 10px; padding: 14px; overflow: auto;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); align-content: start;
