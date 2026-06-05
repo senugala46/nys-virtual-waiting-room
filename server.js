@@ -382,7 +382,7 @@ function leaveConf(socket) {
  * ------------------------------------------------------------------ */
 
 app.get('/api/directory', (req, res) => {
-  res.json({ directory, roles: ROLES });
+  res.json({ directory, roles: ROLES, aiEnabled: ai.HAS_AI });
 });
 
 app.post('/api/login', (req, res) => {
@@ -446,6 +446,13 @@ app.post('/api/recordings/:hearingId', express.raw({ type: () => true, limit: '1
 app.post('/api/ai/translate', async (req, res) => {
   const { text, to } = req.body || {};
   const out = await ai.translate(text || '', to || 'es');
+  res.json(out);
+});
+
+// AI: translate the whole UI string set for a language (full-interface i18n).
+app.post('/api/ai/translate-ui', async (req, res) => {
+  const { texts, to } = req.body || {};
+  const out = await ai.translateBatch(texts || [], to || 'en');
   res.json(out);
 });
 

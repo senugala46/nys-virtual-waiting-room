@@ -457,7 +457,7 @@ function leaveConf(socket) {
  * ------------------------------------------------------------------ */
 
 app.get('/api/directory', (req, res) => {
-  res.json({ directory, roles: ROLES });
+  res.json({ directory, roles: ROLES, aiEnabled: ai.HAS_AI });
 });
 
 app.post('/api/login', (req, res) => {
@@ -521,6 +521,13 @@ app.post('/api/recordings/:hearingId', express.raw({ type: () => true, limit: '1
 app.post('/api/ai/translate', async (req, res) => {
   const { text, to } = req.body || {};
   const out = await ai.translate(text || '', to || 'es');
+  res.json(out);
+});
+
+// AI: translate the whole UI string set for a language (full-interface i18n).
+app.post('/api/ai/translate-ui', async (req, res) => {
+  const { texts, to } = req.body || {};
+  const out = await ai.translateBatch(texts || [], to || 'en');
   res.json(out);
 });
 
@@ -783,7 +790,7 @@ server.listen(PORT, () => {
 
 ## `ai.js`
 
-```js
+````js
 /**
  * AI services for the VWR — provider-optional.
  *
@@ -911,8 +918,36 @@ async function summarize(hearing) {
   return { summary: lines.join('\n'), provider: 'demo' };
 }
 
-module.exports = { translate, summarize, LANGS, HAS_AI };
-```
+/* ------------------------------------------------------------------ *
+ * Batch UI translation (for full-interface localization)
+ * ------------------------------------------------------------------ */
+
+async function translateBatch(texts, to) {
+  if (!Array.isArray(texts) || !texts.length || to === 'en') {
+    return { translations: texts || [], provider: 'none' };
+  }
+  if (HAS_AI) {
+    const out = await callClaude(
+      `You are a professional UI localizer for a New York State government web application about legal "fair hearings". Translate each string in the JSON array into ${LANGS[to] || to}. ` +
+        'Keep any placeholder tokens in curly braces (e.g. {time}, {m}, {info}) EXACTLY as-is. Use a clear, formal, respectful register suitable for the public. ' +
+        'Return ONLY a JSON array of translated strings, same length and order, no commentary.',
+      JSON.stringify(texts), 3000
+    );
+    if (out) {
+      try {
+        const arr = JSON.parse(out.replace(/^```json\s*/i, '').replace(/```$/i, '').trim());
+        if (Array.isArray(arr) && arr.length === texts.length) {
+          return { translations: arr.map(String), provider: 'anthropic' };
+        }
+      } catch (_) { /* fall through */ }
+    }
+  }
+  // No key (or parse failure): keep English so the UI stays clean and readable.
+  return { translations: texts, provider: 'fallback-en' };
+}
+
+module.exports = { translate, translateBatch, summarize, LANGS, HAS_AI };
+````
 
 ## `public/index.html`
 
@@ -939,18 +974,21 @@ module.exports = { translate, summarize, LANGS, HAS_AI };
   <section id="login" class="login-screen" aria-labelledby="login-title">
     <div class="login-card">
       <div class="seal" aria-hidden="true">NYS</div>
-      <h1 id="login-title">Virtual Waiting Room</h1>
-      <p class="login-sub">NYS ITS · Integrated Eligibility System (IES) · Fair Hearings</p>
+      <h1 id="login-title" data-i18n="app.title">Virtual Waiting Room</h1>
+      <p class="login-sub" data-i18n="login.subtitle">NYS ITS · Integrated Eligibility System (IES) · Fair Hearings</p>
 
-      <label for="user-select" class="field-label">Sign in via ITS Identity (SSO)</label>
+      <label for="lang-login" class="field-label" data-i18n="common.language">Language</label>
+      <select id="lang-login" class="select lang-select" aria-label="Language"></select>
+
+      <label for="user-select" class="field-label" data-i18n="login.signinVia">Sign in via ITS Identity (SSO)</label>
       <select id="user-select" class="select" aria-describedby="login-hint"></select>
-      <p id="login-hint" class="hint">Demo SSO — your role &amp; permissions are derived from the IAM assertion.</p>
+      <p id="login-hint" class="hint" data-i18n="login.hint">Demo SSO — your role &amp; permissions are derived from the IAM assertion.</p>
 
-      <nys-button id="login-btn" fullWidth label="Sign In via SSO" prefixIcon="lock_filled"></nys-button>
+      <nys-button id="login-btn" fullWidth label="Sign In via SSO" data-i18n-label="login.signin" prefixIcon="lock_filled"></nys-button>
 
       <details class="sso-note">
-        <summary>About authentication</summary>
-        <p>In production this screen is replaced by ITS IAM using <strong>SAML 2.0 / OAuth / OpenID Connect</strong> single sign-on. Role and party-of-interest claims flow from the calling IES application.</p>
+        <summary data-i18n="login.aboutAuth">About authentication</summary>
+        <p data-i18n="login.aboutBody">In production this screen is replaced by ITS IAM using SAML 2.0 / OAuth / OpenID Connect single sign-on. Role and party-of-interest claims flow from the calling IES application.</p>
       </details>
     </div>
   </section>
@@ -970,12 +1008,13 @@ module.exports = { translate, summarize, LANGS, HAS_AI };
         <span id="clock" class="clock" aria-live="off"></span>
       </div>
       <div class="topbar-right">
+        <select id="lang-top" class="lang-select lang-select-top" aria-label="Language"></select>
         <div class="who">
           <span id="who-name" class="who-name"></span>
           <span id="who-role" class="badge badge-role"></span>
         </div>
-        <nys-button id="reset-btn" variant="outline" inverted size="sm" label="Reset" prefixIcon="refresh" title="Reset demo data"></nys-button>
-        <nys-button id="logout-btn" variant="outline" inverted size="sm" label="Sign out" prefixIcon="close"></nys-button>
+        <nys-button id="reset-btn" variant="outline" inverted size="sm" label="Reset" data-i18n-label="nav.reset" prefixIcon="refresh" title="Reset demo data"></nys-button>
+        <nys-button id="logout-btn" variant="outline" inverted size="sm" label="Sign out" data-i18n-label="nav.signout" prefixIcon="close"></nys-button>
       </div>
     </header>
 
@@ -985,16 +1024,16 @@ module.exports = { translate, summarize, LANGS, HAS_AI };
         <div class="toolbar-left">
           <div class="search-wrap">
             <nys-icon name="search" size="sm" class="search-icon" aria-hidden="true"></nys-icon>
-            <input id="search" class="input has-icon" type="search" placeholder="Search hearing #, name, type, agency…" aria-label="Search hearings" />
+            <input id="search" class="input has-icon" type="search" data-i18n-ph="toolbar.search" placeholder="Search hearing #, name, type, agency…" aria-label="Search hearings" />
           </div>
           <select id="sort" class="select select-sm" aria-label="Sort hearings">
-            <option value="time">Sort: Scheduled time</option>
-            <option value="appellant">Sort: Appellant name</option>
-            <option value="status">Sort: Waiting room status</option>
-            <option value="agency">Sort: Agency</option>
+            <option value="time" data-i18n="sort.time">Sort: Scheduled time</option>
+            <option value="appellant" data-i18n="sort.appellant">Sort: Appellant name</option>
+            <option value="status" data-i18n="sort.status">Sort: Waiting room status</option>
+            <option value="agency" data-i18n="sort.agency">Sort: Agency</option>
           </select>
           <select id="filter-status" class="select select-sm" aria-label="Filter by status">
-            <option value="">All statuses</option>
+            <option value="" data-i18n="filter.all">All statuses</option>
           </select>
         </div>
         <div id="view-title" class="view-title"></div>
@@ -1069,6 +1108,7 @@ module.exports = { translate, summarize, LANGS, HAS_AI };
   <div id="toasts" class="toasts" aria-live="assertive"></div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
   <script src="conference.js"></script>
 </body>
@@ -1200,6 +1240,20 @@ nys-skipnav { position: relative; z-index: 1000; }
 .brand-title { font-weight: 700; font-size: 1.05rem; }
 .brand-sub { font-size: .72rem; opacity: .8; }
 .topbar-status { display: flex; align-items: center; gap: 14px; }
+
+/* Language switcher */
+.lang-select { font: inherit; }
+.lang-select-top {
+  background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.35);
+  border-radius: 8px; padding: 6px 8px; font: inherit; font-size: .85rem;
+}
+.lang-select-top option { color: #1b1b1b; }
+#lang-login { width: 100%; margin-bottom: 14px; }
+
+/* RTL support (Arabic, Urdu, Yiddish) */
+[dir="rtl"] .card-meta, [dir="rtl"] .my-controls, [dir="rtl"] .officer-controls { text-align: right; }
+[dir="rtl"] .plist li { direction: rtl; }
+[dir="rtl"] .summary-body, [dir="rtl"] .summary-empty { text-align: right; }
 .topbar-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 nys-globalheader { display: block; width: 100%; }
 .conn { font-size: .8rem; color: #bfe8cf; }
@@ -1440,6 +1494,209 @@ body.conf-open { overflow: hidden; }
 }
 ```
 
+## `public/i18n.js`
+
+```js
+/* Internationalization for the VWR — NYS language-access set (12 languages + English).
+ *
+ * English + Spanish are baked in (offline, verified). The other 11 languages are
+ * populated on demand via the AI translation service (/api/ai/translate-ui),
+ * cached in localStorage. When no translation service is configured, non-baked
+ * languages gracefully fall back to English rather than showing low-quality text.
+ *
+ * Usage: VWRi18n.t('key', {vars}). Static HTML uses [data-i18n], [data-i18n-ph],
+ * [data-i18n-title]. Call VWRi18n.setLang(code) to switch.
+ */
+(function () {
+  'use strict';
+
+  // NYS statewide language-access languages (Executive Order 26.1) + English.
+  const LANGS = [
+    { code: 'en', name: 'English',        dir: 'ltr' },
+    { code: 'es', name: 'Español',        dir: 'ltr' },
+    { code: 'zh', name: '中文',            dir: 'ltr' },
+    { code: 'ru', name: 'Русский',        dir: 'ltr' },
+    { code: 'bn', name: 'বাংলা',          dir: 'ltr' },
+    { code: 'ht', name: 'Kreyòl Ayisyen', dir: 'ltr' },
+    { code: 'ko', name: '한국어',          dir: 'ltr' },
+    { code: 'ar', name: 'العربية',         dir: 'rtl' },
+    { code: 'it', name: 'Italiano',       dir: 'ltr' },
+    { code: 'pl', name: 'Polski',         dir: 'ltr' },
+    { code: 'fr', name: 'Français',       dir: 'ltr' },
+    { code: 'ur', name: 'اردو',            dir: 'rtl' },
+    { code: 'yi', name: 'ייִדיש',          dir: 'rtl' },
+  ];
+  const DIR = {};
+  LANGS.forEach((l) => (DIR[l.code] = l.dir));
+
+  const STRINGS = {
+    en: {
+      'app.title': 'Virtual Waiting Room',
+      'app.subtitle': 'Integrated Eligibility System · Fair Hearings',
+      'login.subtitle': 'NYS ITS · Integrated Eligibility System (IES) · Fair Hearings',
+      'login.signinVia': 'Sign in via ITS Identity (SSO)',
+      'login.hint': 'Demo SSO — your role & permissions are derived from the IAM assertion.',
+      'login.signin': 'Sign In via SSO',
+      'login.aboutAuth': 'About authentication',
+      'login.aboutBody': 'In production this screen is replaced by ITS IAM using SAML 2.0 / OAuth / OpenID Connect single sign-on. Role and party-of-interest claims flow from the calling IES application.',
+      'common.language': 'Language',
+      'common.empty': 'No hearings match your view.',
+      'nav.live': 'Live', 'nav.offline': 'Offline', 'nav.reset': 'Reset', 'nav.signout': 'Sign out',
+      'toolbar.search': 'Search hearing #, name, type, agency…',
+      'sort.time': 'Sort: Scheduled time', 'sort.appellant': 'Sort: Appellant name',
+      'sort.status': 'Sort: Waiting room status', 'sort.agency': 'Sort: Agency',
+      'filter.all': 'All statuses',
+      'view.my': 'My Hearings', 'view.assigned': 'My Assigned Hearings',
+      'view.oversight': 'All Hearings — Oversight Dashboard', 'view.support': 'Hearings I Support',
+      'status.not_checked_in': 'Not Checked In', 'status.not_ready': 'Not Ready',
+      'status.ready': 'Ready for Hearing', 'status.called': 'Called',
+      'status.recalled': 'Recalled', 'status.closed': 'Closed',
+      'card.appellant': 'Appellant', 'card.time': 'Time', 'card.aid': 'Aid', 'card.disposition': 'Disposition',
+      'card.checkin': 'Check In', 'card.checkout': 'Check Out',
+      'card.available': 'Available', 'card.unavailable': 'Unavailable',
+      'card.checkedIn': "You're checked in.", 'card.checkedInAt': "You're checked in at {time}.",
+      'card.join': 'Join Virtual Hearing (In-house Video)',
+      'card.participants': 'Participants', 'card.pNotChecked': 'Not checked in', 'card.removed': 'Removed',
+      'card.wait': 'Est. wait ~{m} min', 'card.inProgress': 'In progress',
+      'card.closedNote': 'This hearing is closed.',
+      'card.limited': 'Participant details are limited for your role.',
+      'officer.call': 'Call Hearing', 'officer.start': 'Start / Launch Conference',
+      'officer.close': 'Close Hearing', 'officer.recall': 'Recall Hearing',
+      'officer.reassign': 'Reassign to…', 'officer.deny': 'Deny',
+      'officer.waiting': 'Waiting for at least one participant to check in and be available.',
+      'summary.title': 'AI Hearing Summary', 'summary.generate': 'Generate',
+      'summary.regenerate': 'Regenerate', 'summary.generating': 'Generating…',
+      'summary.empty': 'Generates a structured summary from the transcript ({info}).',
+      'role.appellant': 'Appellant', 'role.appellant_rep': 'Appellant Representative',
+      'role.appellant_witness': 'Appellant Witness', 'role.agency_rep': 'Agency Representative',
+      'role.agency_witness': 'Agency Witness', 'role.interpreter': 'Interpreter',
+      'role.hearing_officer': 'Hearing Officer (ALJ)', 'role.admin_staff': 'Administrative Staff',
+      'role.supervisor': 'Supervisor / Clerk',
+      'mt.notice': 'Machine-translated for accessibility.',
+    },
+    es: {
+      'app.title': 'Sala de Espera Virtual',
+      'app.subtitle': 'Sistema Integrado de Elegibilidad · Audiencias Imparciales',
+      'login.subtitle': 'NYS ITS · Sistema Integrado de Elegibilidad (IES) · Audiencias Imparciales',
+      'login.signinVia': 'Inicie sesión con ITS Identity (SSO)',
+      'login.hint': 'SSO de demostración: su rol y permisos se derivan de la aserción de IAM.',
+      'login.signin': 'Iniciar sesión con SSO',
+      'login.aboutAuth': 'Acerca de la autenticación',
+      'login.aboutBody': 'En producción, esta pantalla se reemplaza por ITS IAM mediante inicio de sesión único SAML 2.0 / OAuth / OpenID Connect. El rol y las reclamaciones de parte interesada provienen de la aplicación IES.',
+      'common.language': 'Idioma',
+      'common.empty': 'Ninguna audiencia coincide con su vista.',
+      'nav.live': 'En vivo', 'nav.offline': 'Sin conexión', 'nav.reset': 'Reiniciar', 'nav.signout': 'Cerrar sesión',
+      'toolbar.search': 'Buscar n.º de audiencia, nombre, tipo, agencia…',
+      'sort.time': 'Ordenar: Hora programada', 'sort.appellant': 'Ordenar: Nombre del apelante',
+      'sort.status': 'Ordenar: Estado de la sala', 'sort.agency': 'Ordenar: Agencia',
+      'filter.all': 'Todos los estados',
+      'view.my': 'Mis Audiencias', 'view.assigned': 'Mis Audiencias Asignadas',
+      'view.oversight': 'Todas las Audiencias — Panel de Supervisión', 'view.support': 'Audiencias que Apoyo',
+      'status.not_checked_in': 'Sin Registrar', 'status.not_ready': 'No Listo',
+      'status.ready': 'Listo para la Audiencia', 'status.called': 'Llamado',
+      'status.recalled': 'Rellamado', 'status.closed': 'Cerrado',
+      'card.appellant': 'Apelante', 'card.time': 'Hora', 'card.aid': 'Tipo de Ayuda', 'card.disposition': 'Resolución',
+      'card.checkin': 'Registrarse', 'card.checkout': 'Salir',
+      'card.available': 'Disponible', 'card.unavailable': 'No Disponible',
+      'card.checkedIn': 'Está registrado.', 'card.checkedInAt': 'Está registrado a las {time}.',
+      'card.join': 'Unirse a la Audiencia Virtual (Video)',
+      'card.participants': 'Participantes', 'card.pNotChecked': 'Sin registrar', 'card.removed': 'Eliminado',
+      'card.wait': 'Espera estimada ~{m} min', 'card.inProgress': 'En curso',
+      'card.closedNote': 'Esta audiencia está cerrada.',
+      'card.limited': 'Los detalles de los participantes son limitados para su rol.',
+      'officer.call': 'Llamar a la Audiencia', 'officer.start': 'Iniciar / Abrir Conferencia',
+      'officer.close': 'Cerrar Audiencia', 'officer.recall': 'Rellamar Audiencia',
+      'officer.reassign': 'Reasignar a…', 'officer.deny': 'Denegar',
+      'officer.waiting': 'Esperando a que al menos un participante se registre y esté disponible.',
+      'summary.title': 'Resumen de Audiencia con IA', 'summary.generate': 'Generar',
+      'summary.regenerate': 'Regenerar', 'summary.generating': 'Generando…',
+      'summary.empty': 'Genera un resumen estructurado a partir de la transcripción ({info}).',
+      'role.appellant': 'Apelante', 'role.appellant_rep': 'Representante del Apelante',
+      'role.appellant_witness': 'Testigo del Apelante', 'role.agency_rep': 'Representante de la Agencia',
+      'role.agency_witness': 'Testigo de la Agencia', 'role.interpreter': 'Intérprete',
+      'role.hearing_officer': 'Juez de Audiencia (ALJ)', 'role.admin_staff': 'Personal Administrativo',
+      'role.supervisor': 'Supervisor / Secretario',
+      'mt.notice': 'Traducción automática para accesibilidad.',
+    },
+  };
+
+  let lang = localStorage.getItem('vwrLang') || 'en';
+  let aiEnabled = false;
+  let dyn = {};
+  try { dyn = JSON.parse(localStorage.getItem('vwrI18nCache') || '{}'); } catch (_) { dyn = {}; }
+
+  function dictFor(l) {
+    if (l === 'en') return STRINGS.en;
+    return Object.assign({}, STRINGS.en, STRINGS[l] || {}, dyn[l] || {});
+  }
+
+  function t(key, vars) {
+    const d = dictFor(lang);
+    let s = d[key] != null ? d[key] : (STRINGS.en[key] != null ? STRINGS.en[key] : key);
+    if (vars) for (const k in vars) s = s.replace(new RegExp('\\{' + k + '\\}', 'g'), vars[k]);
+    return s;
+  }
+
+  function applyStatic(root) {
+    const r = root || document;
+    r.querySelectorAll('[data-i18n]').forEach((el) => { el.textContent = t(el.getAttribute('data-i18n')); });
+    r.querySelectorAll('[data-i18n-ph]').forEach((el) => { el.setAttribute('placeholder', t(el.getAttribute('data-i18n-ph'))); });
+    r.querySelectorAll('[data-i18n-title]').forEach((el) => { el.setAttribute('title', t(el.getAttribute('data-i18n-title'))); });
+    r.querySelectorAll('[data-i18n-label]').forEach((el) => { el.setAttribute('label', t(el.getAttribute('data-i18n-label'))); });
+  }
+
+  function setDir() {
+    document.documentElement.dir = DIR[lang] || 'ltr';
+    document.documentElement.lang = lang;
+  }
+
+  // Fetch AI translations for all keys of a non-baked language and cache them.
+  async function ensureLang(l) {
+    if (l === 'en' || STRINGS[l] || dyn[l]) return;     // baked or already cached
+    if (!aiEnabled) return;                              // will fall back to English
+    const keys = Object.keys(STRINGS.en);
+    const texts = keys.map((k) => STRINGS.en[k]);
+    try {
+      const res = await fetch('/api/ai/translate-ui', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texts, to: l }),
+      });
+      const data = await res.json();
+      if (data && Array.isArray(data.translations) && data.translations.length === keys.length) {
+        const map = {};
+        keys.forEach((k, i) => (map[k] = data.translations[i]));
+        dyn[l] = map;
+        localStorage.setItem('vwrI18nCache', JSON.stringify(dyn));
+      }
+    } catch (_) { /* keep English fallback */ }
+  }
+
+  async function setLang(l) {
+    lang = l;
+    localStorage.setItem('vwrLang', l);
+    await ensureLang(l);
+    setDir();
+    applyStatic();
+    if (typeof window.VWRonLangChange === 'function') window.VWRonLangChange();
+  }
+
+  function isMachineTranslated(l) {
+    const code = l || lang;
+    return code !== 'en' && !STRINGS[code]; // not baked -> AI/fallback
+  }
+
+  window.VWRi18n = {
+    t, setLang, getLang: () => lang, LANGS,
+    applyStatic, ensureLang, isMachineTranslated,
+    init: (opts) => { aiEnabled = !!(opts && opts.aiEnabled); },
+  };
+
+  // Apply baked language immediately on load (before app boot).
+  setDir();
+  document.addEventListener('DOMContentLoaded', () => applyStatic());
+})();
+```
+
 ## `public/app.js`
 
 ```js
@@ -1456,33 +1713,73 @@ body.conf-open { overflow: hidden; }
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+  // i18n shorthand
+  const t = (k, v) => (window.VWRi18n ? window.VWRi18n.t(k, v) : k);
+  const roleLabel = (code) => t('role.' + code);
+
   const STATUS_META = {
-    not_checked_in: { label: 'Not Checked In',    cls: 'st-none',     icon: 'remove' },
-    not_ready:      { label: 'Not Ready',         cls: 'st-notready', icon: 'progress_activity' },
-    ready:          { label: 'Ready for Hearing', cls: 'st-ready',    icon: 'check_circle' },
-    called:         { label: 'Called',            cls: 'st-called',   icon: 'phone_in_talk' },
-    recalled:       { label: 'Recalled',          cls: 'st-recalled', icon: 'refresh' },
-    closed:         { label: 'Closed',            cls: 'st-closed',   icon: 'check' },
+    not_checked_in: { cls: 'st-none',     icon: 'remove' },
+    not_ready:      { cls: 'st-notready', icon: 'progress_activity' },
+    ready:          { cls: 'st-ready',    icon: 'check_circle' },
+    called:         { cls: 'st-called',   icon: 'phone_in_talk' },
+    recalled:       { cls: 'st-recalled', icon: 'refresh' },
+    closed:         { cls: 'st-closed',   icon: 'check' },
   };
 
   /* -------------------- Login -------------------- */
+
+  let directoryUsers = [];
 
   async function initLogin() {
     const res = await fetch('/api/directory');
     const data = await res.json();
     ROLES = data.roles;
-    const sel = $('#user-select');
-    sel.innerHTML = data.directory
-      .map((u) => `<option value="${u.userId}">${u.name} — ${ROLES[u.role].label}</option>`)
-      .join('');
+    directoryUsers = data.directory;
 
-    // Populate status filter
+    // i18n: enable AI-backed languages if the server has a model configured
+    if (window.VWRi18n) window.VWRi18n.init({ aiEnabled: !!data.aiEnabled });
+    setupLanguageSwitchers();
+
+    refreshDirectoryOptions();
+    refreshStatusFilter();
+  }
+
+  function refreshDirectoryOptions() {
+    $('#user-select').innerHTML = directoryUsers
+      .map((u) => `<option value="${u.userId}">${u.name} — ${roleLabel(u.role)}</option>`)
+      .join('');
+  }
+
+  function refreshStatusFilter() {
     const fs = $('#filter-status');
-    Object.entries(STATUS_META).forEach(([k, v]) => {
-      const o = document.createElement('option');
-      o.value = k; o.textContent = v.label; fs.appendChild(o);
+    const cur = fs.value;
+    fs.innerHTML = `<option value="">${t('filter.all')}</option>` +
+      Object.keys(STATUS_META).map((k) => `<option value="${k}">${t('status.' + k)}</option>`).join('');
+    fs.value = cur;
+  }
+
+  function setupLanguageSwitchers() {
+    const opts = window.VWRi18n.LANGS
+      .map((l) => `<option value="${l.code}">${l.name}</option>`).join('');
+    ['#lang-login', '#lang-top'].forEach((sel) => {
+      const el = $(sel);
+      if (!el) return;
+      el.innerHTML = opts;
+      el.value = window.VWRi18n.getLang();
+      el.onchange = async () => {
+        await window.VWRi18n.setLang(el.value);
+        // keep both switchers in sync
+        ['#lang-login', '#lang-top'].forEach((s) => { const e = $(s); if (e) e.value = el.value; });
+      };
     });
   }
+
+  // Re-localize everything when the language changes.
+  window.VWRonLangChange = () => {
+    refreshDirectoryOptions();
+    refreshStatusFilter();
+    if (session) { $('#who-role').textContent = roleLabel(session.role); render(); }
+  };
 
   $('#login-btn').addEventListener('click', async () => {
     const userId = $('#user-select').value;
@@ -1502,7 +1799,7 @@ body.conf-open { overflow: hidden; }
     $('#login').classList.add('hidden');
     $('#app').classList.remove('hidden');
     $('#who-name').textContent = session.name;
-    $('#who-role').textContent = session.roleLabel;
+    $('#who-role').textContent = roleLabel(session.role);
     render();
   }
 
@@ -1518,7 +1815,7 @@ body.conf-open { overflow: hidden; }
 
   function setConn(ok) {
     const el = $('#conn-status');
-    el.textContent = ok ? '● Live' : '● Offline';
+    el.textContent = ok ? `● ${t('nav.live')}` : `● ${t('nav.offline')}`;
     el.classList.toggle('off', !ok);
   }
 
@@ -1585,7 +1882,7 @@ body.conf-open { overflow: hidden; }
     const board = $('#board');
 
     if (!list.length) {
-      board.innerHTML = `<div class="empty">No hearings match your view.</div>`;
+      board.innerHTML = `<div class="empty">${t('common.empty')}</div>`;
     } else if (role === 'supervisor' || role === 'admin_staff') {
       board.className = 'board board-table';
       board.innerHTML = renderSupervisor(list);
@@ -1600,17 +1897,17 @@ body.conf-open { overflow: hidden; }
 
   function viewTitle(role) {
     switch (role) {
-      case 'hearing_officer': return 'My Assigned Hearings';
+      case 'hearing_officer': return t('view.assigned');
       case 'supervisor':
-      case 'admin_staff': return 'All Hearings — Oversight Dashboard';
-      case 'interpreter': return 'Hearings I Support';
-      default: return 'My Hearings';
+      case 'admin_staff': return t('view.oversight');
+      case 'interpreter': return t('view.support');
+      default: return t('view.my');
     }
   }
 
   function statusBadge(status) {
-    const m = STATUS_META[status] || { label: status, cls: '', icon: 'info' };
-    return `<span class="badge status ${m.cls}"><nys-icon name="${m.icon}" size="sm" aria-hidden="true"></nys-icon>${m.label}</span>`;
+    const m = STATUS_META[status] || { cls: '', icon: 'info' };
+    return `<span class="badge status ${m.cls}"><nys-icon name="${m.icon}" size="sm" aria-hidden="true"></nys-icon>${t('status.' + status)}</span>`;
   }
 
   function me(h) {
@@ -1623,9 +1920,8 @@ body.conf-open { overflow: hidden; }
   function waitChip(h) {
     const p = predFor(h);
     if (!p || h.status === 'closed') return '';
-    if (p.inProgress) return `<span class="wait-chip in-progress"><nys-icon name="phone_in_talk" size="xs"></nys-icon> In progress</span>`;
-    const m = p.estimatedWaitMin;
-    return `<span class="wait-chip"><nys-icon name="progress_activity" size="xs"></nys-icon> Est. wait ~${m} min</span>`;
+    if (p.inProgress) return `<span class="wait-chip in-progress"><nys-icon name="phone_in_talk" size="xs"></nys-icon> ${t('card.inProgress')}</span>`;
+    return `<span class="wait-chip"><nys-icon name="progress_activity" size="xs"></nys-icon> ${t('card.wait', { m: p.estimatedWaitMin })}</span>`;
   }
 
   /* ---- Participant-style card (appellant, rep, agency, witness, interpreter) ---- */
@@ -1636,7 +1932,7 @@ body.conf-open { overflow: hidden; }
     const isOfficer = role === 'hearing_officer';
 
     const participantsHtml = limited
-      ? `<p class="limited-note">Participant details are limited for your role.</p>`
+      ? `<p class="limited-note">${t('card.limited')}</p>`
       : renderParticipantList(h, isOfficer);
 
     // Every participant — including the Hearing Officer (spec §6b.iii) — can
@@ -1658,61 +1954,62 @@ body.conf-open { overflow: hidden; }
           ${statusBadge(h.status)}
         </div>
         <div class="card-meta">
-          <span><b>Appellant:</b> ${h.appellantName}</span>
-          <span><b>Time:</b> ${h.scheduledTime}</span>
-          <span><b>Aid:</b> ${h.categoryOfAid}</span>
-          ${h.disposition ? `<span><b>Disposition:</b> ${h.disposition}</span>` : ''}
+          <span><b>${t('card.appellant')}:</b> ${h.appellantName}</span>
+          <span><b>${t('card.time')}:</b> ${h.scheduledTime}</span>
+          <span><b>${t('card.aid')}:</b> ${h.categoryOfAid}</span>
+          ${h.disposition ? `<span><b>${t('card.disposition')}:</b> ${h.disposition}</span>` : ''}
           ${waitChip(h)}
         </div>
         ${myControls}
         ${officerControls}
         ${isOfficer ? renderSummary(h) : ''}
         <div class="card-participants">${participantsHtml}</div>
-        ${h.conferenceUrl ? `<button class="conf-link" data-act="joinconf" data-h="${h.id}" data-hn="${h.hearingNumber}" data-host="${isOfficer && h.assignedOfficerId === session.sub ? '1' : '0'}"><nys-icon name="phone_in_talk" size="sm"></nys-icon> Join Virtual Hearing (In-house Video)</button>` : ''}
+        ${h.conferenceUrl ? `<button class="conf-link" data-act="joinconf" data-h="${h.id}" data-hn="${h.hearingNumber}" data-host="${isOfficer && h.assignedOfficerId === session.sub ? '1' : '0'}"><nys-icon name="phone_in_talk" size="sm"></nys-icon> ${t('card.join')}</button>` : ''}
       </article>`;
   }
 
   function availBadge(p) {
-    if (p.denied) return `<nys-badge intent="error" size="sm" label="Removed" prefixIcon="cancel"></nys-badge>`;
-    if (!p.checkedIn) return `<nys-badge intent="neutral" size="sm" label="Not checked in"></nys-badge>`;
+    if (p.denied) return `<nys-badge intent="error" size="sm" label="${t('card.removed')}" prefixIcon="cancel"></nys-badge>`;
+    if (!p.checkedIn) return `<nys-badge intent="neutral" size="sm" label="${t('card.pNotChecked')}"></nys-badge>`;
     return p.status === 'available'
-      ? `<nys-badge intent="success" size="sm" label="Available" prefixIcon="check_circle"></nys-badge>`
-      : `<nys-badge intent="warning" size="sm" label="Unavailable"></nys-badge>`;
+      ? `<nys-badge intent="success" size="sm" label="${t('card.available')}" prefixIcon="check_circle"></nys-badge>`
+      : `<nys-badge intent="warning" size="sm" label="${t('card.unavailable')}"></nys-badge>`;
   }
 
   function renderParticipantList(h, showDeny) {
     return `
-      <div class="plist-title">Participants</div>
+      <div class="plist-title">${t('card.participants')}</div>
       <ul class="plist">
         ${h.participants.map((p) => `
           <li class="${p.denied ? 'denied' : ''}">
             <nys-icon name="account_circle" size="md" class="picon" aria-hidden="true"></nys-icon>
             <span class="pname">${p.name}</span>
-            <span class="prole">${ROLES[p.role]?.label || p.role}</span>
+            <span class="prole">${roleLabel(p.role)}</span>
             <span class="pstat">${availBadge(p)}</span>
             ${p.checkInTime ? `<span class="ptime">${fmtTime(p.checkInTime)}</span>` : ''}
             ${showDeny && p.checkedIn && p.role !== 'hearing_officer'
-              ? `<button class="btn btn-danger btn-xs" data-act="deny" data-h="${h.id}" data-u="${p.userId}"><nys-icon name="cancel" size="xs"></nys-icon>Deny</button>` : ''}
+              ? `<button class="btn btn-danger btn-xs" data-act="deny" data-h="${h.id}" data-u="${p.userId}"><nys-icon name="cancel" size="xs"></nys-icon>${t('officer.deny')}</button>` : ''}
           </li>`).join('')}
       </ul>`;
   }
 
   function renderMyControls(h, mine) {
     const closed = h.status === 'closed';
-    if (closed) return `<div class="my-controls"><span class="muted">This hearing is closed.</span></div>`;
+    if (closed) return `<div class="my-controls"><span class="muted">${t('card.closedNote')}</span></div>`;
     if (!mine.checkedIn) {
       return `<div class="my-controls">
-        <nys-button data-act="checkin" data-h="${h.id}" data-u="${mine.userId}" label="Check In" prefixIcon="check_circle"></nys-button>
+        <nys-button data-act="checkin" data-h="${h.id}" data-u="${mine.userId}" label="${t('card.checkin')}" prefixIcon="check_circle"></nys-button>
       </div>`;
     }
+    const checkedMsg = mine.checkInTime ? t('card.checkedInAt', { time: fmtTime(mine.checkInTime) }) : t('card.checkedIn');
     return `
       <div class="my-controls">
-        <span class="muted">You're checked in${mine.checkInTime ? ' at ' + fmtTime(mine.checkInTime) : ''}.</span>
+        <span class="muted">${checkedMsg}</span>
         <div class="seg">
-          <button class="btn btn-toggle ${mine.status === 'available' ? 'on' : ''}" data-act="avail" data-h="${h.id}" data-u="${mine.userId}" data-s="available">Available</button>
-          <button class="btn btn-toggle ${mine.status === 'unavailable' ? 'on' : ''}" data-act="avail" data-h="${h.id}" data-u="${mine.userId}" data-s="unavailable">Unavailable</button>
+          <button class="btn btn-toggle ${mine.status === 'available' ? 'on' : ''}" data-act="avail" data-h="${h.id}" data-u="${mine.userId}" data-s="available">${t('card.available')}</button>
+          <button class="btn btn-toggle ${mine.status === 'unavailable' ? 'on' : ''}" data-act="avail" data-h="${h.id}" data-u="${mine.userId}" data-s="unavailable">${t('card.unavailable')}</button>
         </div>
-        <nys-button data-act="checkout" data-h="${h.id}" data-u="${mine.userId}" variant="outline" size="sm" label="Check Out" prefixIcon="close"></nys-button>
+        <nys-button data-act="checkout" data-h="${h.id}" data-u="${mine.userId}" variant="outline" size="sm" label="${t('card.checkout')}" prefixIcon="close"></nys-button>
       </div>`;
   }
 
@@ -1724,23 +2021,22 @@ body.conf-open { overflow: hidden; }
     const officers = (window.__officers || []);
     const reassign = `
       <select class="select select-sm" data-act="reassign" data-h="${h.id}" aria-label="Reassign hearing officer">
-        <option value="">Reassign to…</option>
+        <option value="">${t('officer.reassign')}</option>
         ${officers.filter(o => o.userId !== h.assignedOfficerId).map(o => `<option value="${o.userId}">${o.name}</option>`).join('')}
       </select>`;
 
     let primary = '';
     let hint = '';
     if (closed) {
-      primary = `<nys-button data-act="reopen" data-h="${h.id}" variant="outline" label="Recall Hearing" prefixIcon="refresh"></nys-button>`;
+      primary = `<nys-button data-act="reopen" data-h="${h.id}" variant="outline" label="${t('officer.recall')}" prefixIcon="refresh"></nys-button>`;
     } else if (inHearing) {
       primary = `
-        <nys-button data-act="start" data-h="${h.id}" label="Start / Launch Conference" prefixIcon="phone_in_talk"></nys-button>
-        <button class="btn btn-danger" data-act="close" data-h="${h.id}"><nys-icon name="cancel" size="sm"></nys-icon>Close Hearing</button>`;
+        <nys-button data-act="start" data-h="${h.id}" label="${t('officer.start')}" prefixIcon="phone_in_talk"></nys-button>
+        <button class="btn btn-danger" data-act="close" data-h="${h.id}"><nys-icon name="cancel" size="sm"></nys-icon>${t('officer.close')}</button>`;
     } else {
-      primary = `<nys-button data-act="call" data-h="${h.id}" label="Call Hearing" prefixIcon="phone_in_talk" ${ready ? '' : 'disabled'}></nys-button>`;
+      primary = `<nys-button data-act="call" data-h="${h.id}" label="${t('officer.call')}" prefixIcon="phone_in_talk" ${ready ? '' : 'disabled'}></nys-button>`;
       if (!ready) {
-        // Ready requires at least one participant checked in AND available.
-        hint = `<div class="muted blockers"><nys-icon name="progress_activity" size="xs"></nys-icon> Waiting for at least one participant to check in and be available.</div>`;
+        hint = `<div class="muted blockers"><nys-icon name="progress_activity" size="xs"></nys-icon> ${t('officer.waiting')}</div>`;
       }
     }
 
@@ -1753,16 +2049,16 @@ body.conf-open { overflow: hidden; }
 
   function renderSummary(h) {
     const has = !!h.summary;
-    const hasTranscript = (h.transcript && h.transcript.length) ? `${h.transcript.length} caption lines` : 'no captions yet';
+    const info = (h.transcript && h.transcript.length) ? `${h.transcript.length} caption lines` : 'no captions yet';
     return `
       <div class="summary-box">
         <div class="summary-head">
-          <span><nys-icon name="edit_square" size="sm"></nys-icon> AI Hearing Summary</span>
-          <button class="btn btn-ghost btn-xs" data-act="gensummary" data-h="${h.id}">${has ? 'Regenerate' : 'Generate'}</button>
+          <span><nys-icon name="edit_square" size="sm"></nys-icon> ${t('summary.title')}</span>
+          <button class="btn btn-ghost btn-xs" data-act="gensummary" data-h="${h.id}">${has ? t('summary.regenerate') : t('summary.generate')}</button>
         </div>
         ${has
           ? `<div class="summary-body">${mdLite(h.summary)}</div>`
-          : `<div class="muted summary-empty">Generates a structured summary from the transcript (${hasTranscript}).</div>`}
+          : `<div class="muted summary-empty">${t('summary.empty', { info })}</div>`}
       </div>`;
   }
 
@@ -1867,7 +2163,7 @@ body.conf-open { overflow: hidden; }
         el.onclick = () => loadRecordings();
       } else if (a === 'gensummary') {
         el.onclick = () => {
-          el.textContent = 'Generating…';
+          el.textContent = t('summary.generating');
           fetch('/api/ai/summarize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hearingId: el.dataset.h, actor: session.name }) })
             .then((r) => r.json())
             .then((d) => toast(`Summary ready (${d.provider === 'anthropic' ? 'AI' : 'demo'}).`, 'info'))

@@ -125,4 +125,32 @@ async function summarize(hearing) {
   return { summary: lines.join('\n'), provider: 'demo' };
 }
 
-module.exports = { translate, summarize, LANGS, HAS_AI };
+/* ------------------------------------------------------------------ *
+ * Batch UI translation (for full-interface localization)
+ * ------------------------------------------------------------------ */
+
+async function translateBatch(texts, to) {
+  if (!Array.isArray(texts) || !texts.length || to === 'en') {
+    return { translations: texts || [], provider: 'none' };
+  }
+  if (HAS_AI) {
+    const out = await callClaude(
+      `You are a professional UI localizer for a New York State government web application about legal "fair hearings". Translate each string in the JSON array into ${LANGS[to] || to}. ` +
+        'Keep any placeholder tokens in curly braces (e.g. {time}, {m}, {info}) EXACTLY as-is. Use a clear, formal, respectful register suitable for the public. ' +
+        'Return ONLY a JSON array of translated strings, same length and order, no commentary.',
+      JSON.stringify(texts), 3000
+    );
+    if (out) {
+      try {
+        const arr = JSON.parse(out.replace(/^```json\s*/i, '').replace(/```$/i, '').trim());
+        if (Array.isArray(arr) && arr.length === texts.length) {
+          return { translations: arr.map(String), provider: 'anthropic' };
+        }
+      } catch (_) { /* fall through */ }
+    }
+  }
+  // No key (or parse failure): keep English so the UI stays clean and readable.
+  return { translations: texts, provider: 'fallback-en' };
+}
+
+module.exports = { translate, translateBatch, summarize, LANGS, HAS_AI };

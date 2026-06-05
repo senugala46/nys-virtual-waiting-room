@@ -16,6 +16,7 @@ const FILES = [
   { p: 'ai.js',                lang: 'js'   },
   { p: 'public/index.html',    lang: 'html' },
   { p: 'public/styles.css',    lang: 'css'  },
+  { p: 'public/i18n.js',       lang: 'js'   },
   { p: 'public/app.js',        lang: 'js'   },
   { p: 'public/conference.js', lang: 'js'   },
   { p: 'README.md',            lang: 'markdown' },

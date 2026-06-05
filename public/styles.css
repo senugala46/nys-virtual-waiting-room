@@ -120,6 +120,20 @@ nys-skipnav { position: relative; z-index: 1000; }
 .brand-title { font-weight: 700; font-size: 1.05rem; }
 .brand-sub { font-size: .72rem; opacity: .8; }
 .topbar-status { display: flex; align-items: center; gap: 14px; }
+
+/* Language switcher */
+.lang-select { font: inherit; }
+.lang-select-top {
+  background: rgba(255,255,255,.14); color: #fff; border: 1px solid rgba(255,255,255,.35);
+  border-radius: 8px; padding: 6px 8px; font: inherit; font-size: .85rem;
+}
+.lang-select-top option { color: #1b1b1b; }
+#lang-login { width: 100%; margin-bottom: 14px; }
+
+/* RTL support (Arabic, Urdu, Yiddish) */
+[dir="rtl"] .card-meta, [dir="rtl"] .my-controls, [dir="rtl"] .officer-controls { text-align: right; }
+[dir="rtl"] .plist li { direction: rtl; }
+[dir="rtl"] .summary-body, [dir="rtl"] .summary-empty { text-align: right; }
 .topbar-right { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 nys-globalheader { display: block; width: 100%; }
 .conn { font-size: .8rem; color: #bfe8cf; }

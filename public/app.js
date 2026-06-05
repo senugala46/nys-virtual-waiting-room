@@ -11,33 +11,73 @@
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
+  // i18n shorthand
+  const t = (k, v) => (window.VWRi18n ? window.VWRi18n.t(k, v) : k);
+  const roleLabel = (code) => t('role.' + code);
+
   const STATUS_META = {
-    not_checked_in: { label: 'Not Checked In',    cls: 'st-none',     icon: 'remove' },
-    not_ready:      { label: 'Not Ready',         cls: 'st-notready', icon: 'progress_activity' },
-    ready:          { label: 'Ready for Hearing', cls: 'st-ready',    icon: 'check_circle' },
-    called:         { label: 'Called',            cls: 'st-called',   icon: 'phone_in_talk' },
-    recalled:       { label: 'Recalled',          cls: 'st-recalled', icon: 'refresh' },
-    closed:         { label: 'Closed',            cls: 'st-closed',   icon: 'check' },
+    not_checked_in: { cls: 'st-none',     icon: 'remove' },
+    not_ready:      { cls: 'st-notready', icon: 'progress_activity' },
+    ready:          { cls: 'st-ready',    icon: 'check_circle' },
+    called:         { cls: 'st-called',   icon: 'phone_in_talk' },
+    recalled:       { cls: 'st-recalled', icon: 'refresh' },
+    closed:         { cls: 'st-closed',   icon: 'check' },
   };
 
   /* -------------------- Login -------------------- */
+
+  let directoryUsers = [];
 
   async function initLogin() {
     const res = await fetch('/api/directory');
     const data = await res.json();
     ROLES = data.roles;
-    const sel = $('#user-select');
-    sel.innerHTML = data.directory
-      .map((u) => `<option value="${u.userId}">${u.name} — ${ROLES[u.role].label}</option>`)
-      .join('');
+    directoryUsers = data.directory;
 
-    // Populate status filter
+    // i18n: enable AI-backed languages if the server has a model configured
+    if (window.VWRi18n) window.VWRi18n.init({ aiEnabled: !!data.aiEnabled });
+    setupLanguageSwitchers();
+
+    refreshDirectoryOptions();
+    refreshStatusFilter();
+  }
+
+  function refreshDirectoryOptions() {
+    $('#user-select').innerHTML = directoryUsers
+      .map((u) => `<option value="${u.userId}">${u.name} — ${roleLabel(u.role)}</option>`)
+      .join('');
+  }
+
+  function refreshStatusFilter() {
     const fs = $('#filter-status');
-    Object.entries(STATUS_META).forEach(([k, v]) => {
-      const o = document.createElement('option');
-      o.value = k; o.textContent = v.label; fs.appendChild(o);
+    const cur = fs.value;
+    fs.innerHTML = `<option value="">${t('filter.all')}</option>` +
+      Object.keys(STATUS_META).map((k) => `<option value="${k}">${t('status.' + k)}</option>`).join('');
+    fs.value = cur;
+  }
+
+  function setupLanguageSwitchers() {
+    const opts = window.VWRi18n.LANGS
+      .map((l) => `<option value="${l.code}">${l.name}</option>`).join('');
+    ['#lang-login', '#lang-top'].forEach((sel) => {
+      const el = $(sel);
+      if (!el) return;
+      el.innerHTML = opts;
+      el.value = window.VWRi18n.getLang();
+      el.onchange = async () => {
+        await window.VWRi18n.setLang(el.value);
+        // keep both switchers in sync
+        ['#lang-login', '#lang-top'].forEach((s) => { const e = $(s); if (e) e.value = el.value; });
+      };
     });
   }
+
+  // Re-localize everything when the language changes.
+  window.VWRonLangChange = () => {
+    refreshDirectoryOptions();
+    refreshStatusFilter();
+    if (session) { $('#who-role').textContent = roleLabel(session.role); render(); }
+  };
 
   $('#login-btn').addEventListener('click', async () => {
     const userId = $('#user-select').value;
@@ -57,7 +97,7 @@
     $('#login').classList.add('hidden');
     $('#app').classList.remove('hidden');
     $('#who-name').textContent = session.name;
-    $('#who-role').textContent = session.roleLabel;
+    $('#who-role').textContent = roleLabel(session.role);
     render();
   }
 
@@ -73,7 +113,7 @@
 
   function setConn(ok) {
     const el = $('#conn-status');
-    el.textContent = ok ? '● Live' : '● Offline';
+    el.textContent = ok ? `● ${t('nav.live')}` : `● ${t('nav.offline')}`;
     el.classList.toggle('off', !ok);
   }
 
@@ -140,7 +180,7 @@
     const board = $('#board');
 
     if (!list.length) {
-      board.innerHTML = `<div class="empty">No hearings match your view.</div>`;
+      board.innerHTML = `<div class="empty">${t('common.empty')}</div>`;
     } else if (role === 'supervisor' || role === 'admin_staff') {
       board.className = 'board board-table';
       board.innerHTML = renderSupervisor(list);
@@ -155,17 +195,17 @@
 
   function viewTitle(role) {
     switch (role) {
-      case 'hearing_officer': return 'My Assigned Hearings';
+      case 'hearing_officer': return t('view.assigned');
       case 'supervisor':
-      case 'admin_staff': return 'All Hearings — Oversight Dashboard';
-      case 'interpreter': return 'Hearings I Support';
-      default: return 'My Hearings';
+      case 'admin_staff': return t('view.oversight');
+      case 'interpreter': return t('view.support');
+      default: return t('view.my');
     }
   }
 
   function statusBadge(status) {
-    const m = STATUS_META[status] || { label: status, cls: '', icon: 'info' };
-    return `<span class="badge status ${m.cls}"><nys-icon name="${m.icon}" size="sm" aria-hidden="true"></nys-icon>${m.label}</span>`;
+    const m = STATUS_META[status] || { cls: '', icon: 'info' };
+    return `<span class="badge status ${m.cls}"><nys-icon name="${m.icon}" size="sm" aria-hidden="true"></nys-icon>${t('status.' + status)}</span>`;
   }
 
   function me(h) {
@@ -178,9 +218,8 @@
   function waitChip(h) {
     const p = predFor(h);
     if (!p || h.status === 'closed') return '';
-    if (p.inProgress) return `<span class="wait-chip in-progress"><nys-icon name="phone_in_talk" size="xs"></nys-icon> In progress</span>`;
-    const m = p.estimatedWaitMin;
-    return `<span class="wait-chip"><nys-icon name="progress_activity" size="xs"></nys-icon> Est. wait ~${m} min</span>`;
+    if (p.inProgress) return `<span class="wait-chip in-progress"><nys-icon name="phone_in_talk" size="xs"></nys-icon> ${t('card.inProgress')}</span>`;
+    return `<span class="wait-chip"><nys-icon name="progress_activity" size="xs"></nys-icon> ${t('card.wait', { m: p.estimatedWaitMin })}</span>`;
   }
 
   /* ---- Participant-style card (appellant, rep, agency, witness, interpreter) ---- */
@@ -191,7 +230,7 @@
     const isOfficer = role === 'hearing_officer';
 
     const participantsHtml = limited
-      ? `<p class="limited-note">Participant details are limited for your role.</p>`
+      ? `<p class="limited-note">${t('card.limited')}</p>`
       : renderParticipantList(h, isOfficer);
 
     // Every participant — including the Hearing Officer (spec §6b.iii) — can
@@ -213,61 +252,62 @@
           ${statusBadge(h.status)}
         </div>
         <div class="card-meta">
-          <span><b>Appellant:</b> ${h.appellantName}</span>
-          <span><b>Time:</b> ${h.scheduledTime}</span>
-          <span><b>Aid:</b> ${h.categoryOfAid}</span>
-          ${h.disposition ? `<span><b>Disposition:</b> ${h.disposition}</span>` : ''}
+          <span><b>${t('card.appellant')}:</b> ${h.appellantName}</span>
+          <span><b>${t('card.time')}:</b> ${h.scheduledTime}</span>
+          <span><b>${t('card.aid')}:</b> ${h.categoryOfAid}</span>
+          ${h.disposition ? `<span><b>${t('card.disposition')}:</b> ${h.disposition}</span>` : ''}
           ${waitChip(h)}
         </div>
         ${myControls}
         ${officerControls}
         ${isOfficer ? renderSummary(h) : ''}
         <div class="card-participants">${participantsHtml}</div>
-        ${h.conferenceUrl ? `<button class="conf-link" data-act="joinconf" data-h="${h.id}" data-hn="${h.hearingNumber}" data-host="${isOfficer && h.assignedOfficerId === session.sub ? '1' : '0'}"><nys-icon name="phone_in_talk" size="sm"></nys-icon> Join Virtual Hearing (In-house Video)</button>` : ''}
+        ${h.conferenceUrl ? `<button class="conf-link" data-act="joinconf" data-h="${h.id}" data-hn="${h.hearingNumber}" data-host="${isOfficer && h.assignedOfficerId === session.sub ? '1' : '0'}"><nys-icon name="phone_in_talk" size="sm"></nys-icon> ${t('card.join')}</button>` : ''}
       </article>`;
   }
 
   function availBadge(p) {
-    if (p.denied) return `<nys-badge intent="error" size="sm" label="Removed" prefixIcon="cancel"></nys-badge>`;
-    if (!p.checkedIn) return `<nys-badge intent="neutral" size="sm" label="Not checked in"></nys-badge>`;
+    if (p.denied) return `<nys-badge intent="error" size="sm" label="${t('card.removed')}" prefixIcon="cancel"></nys-badge>`;
+    if (!p.checkedIn) return `<nys-badge intent="neutral" size="sm" label="${t('card.pNotChecked')}"></nys-badge>`;
     return p.status === 'available'
-      ? `<nys-badge intent="success" size="sm" label="Available" prefixIcon="check_circle"></nys-badge>`
-      : `<nys-badge intent="warning" size="sm" label="Unavailable"></nys-badge>`;
+      ? `<nys-badge intent="success" size="sm" label="${t('card.available')}" prefixIcon="check_circle"></nys-badge>`
+      : `<nys-badge intent="warning" size="sm" label="${t('card.unavailable')}"></nys-badge>`;
   }
 
   function renderParticipantList(h, showDeny) {
     return `
-      <div class="plist-title">Participants</div>
+      <div class="plist-title">${t('card.participants')}</div>
       <ul class="plist">
         ${h.participants.map((p) => `
           <li class="${p.denied ? 'denied' : ''}">
             <nys-icon name="account_circle" size="md" class="picon" aria-hidden="true"></nys-icon>
             <span class="pname">${p.name}</span>
-            <span class="prole">${ROLES[p.role]?.label || p.role}</span>
+            <span class="prole">${roleLabel(p.role)}</span>
             <span class="pstat">${availBadge(p)}</span>
             ${p.checkInTime ? `<span class="ptime">${fmtTime(p.checkInTime)}</span>` : ''}
             ${showDeny && p.checkedIn && p.role !== 'hearing_officer'
-              ? `<button class="btn btn-danger btn-xs" data-act="deny" data-h="${h.id}" data-u="${p.userId}"><nys-icon name="cancel" size="xs"></nys-icon>Deny</button>` : ''}
+              ? `<button class="btn btn-danger btn-xs" data-act="deny" data-h="${h.id}" data-u="${p.userId}"><nys-icon name="cancel" size="xs"></nys-icon>${t('officer.deny')}</button>` : ''}
           </li>`).join('')}
       </ul>`;
   }
 
   function renderMyControls(h, mine) {
     const closed = h.status === 'closed';
-    if (closed) return `<div class="my-controls"><span class="muted">This hearing is closed.</span></div>`;
+    if (closed) return `<div class="my-controls"><span class="muted">${t('card.closedNote')}</span></div>`;
     if (!mine.checkedIn) {
       return `<div class="my-controls">
-        <nys-button data-act="checkin" data-h="${h.id}" data-u="${mine.userId}" label="Check In" prefixIcon="check_circle"></nys-button>
+        <nys-button data-act="checkin" data-h="${h.id}" data-u="${mine.userId}" label="${t('card.checkin')}" prefixIcon="check_circle"></nys-button>
       </div>`;
     }
+    const checkedMsg = mine.checkInTime ? t('card.checkedInAt', { time: fmtTime(mine.checkInTime) }) : t('card.checkedIn');
     return `
       <div class="my-controls">
-        <span class="muted">You're checked in${mine.checkInTime ? ' at ' + fmtTime(mine.checkInTime) : ''}.</span>
+        <span class="muted">${checkedMsg}</span>
         <div class="seg">
-          <button class="btn btn-toggle ${mine.status === 'available' ? 'on' : ''}" data-act="avail" data-h="${h.id}" data-u="${mine.userId}" data-s="available">Available</button>
-          <button class="btn btn-toggle ${mine.status === 'unavailable' ? 'on' : ''}" data-act="avail" data-h="${h.id}" data-u="${mine.userId}" data-s="unavailable">Unavailable</button>
+          <button class="btn btn-toggle ${mine.status === 'available' ? 'on' : ''}" data-act="avail" data-h="${h.id}" data-u="${mine.userId}" data-s="available">${t('card.available')}</button>
+          <button class="btn btn-toggle ${mine.status === 'unavailable' ? 'on' : ''}" data-act="avail" data-h="${h.id}" data-u="${mine.userId}" data-s="unavailable">${t('card.unavailable')}</button>
         </div>
-        <nys-button data-act="checkout" data-h="${h.id}" data-u="${mine.userId}" variant="outline" size="sm" label="Check Out" prefixIcon="close"></nys-button>
+        <nys-button data-act="checkout" data-h="${h.id}" data-u="${mine.userId}" variant="outline" size="sm" label="${t('card.checkout')}" prefixIcon="close"></nys-button>
       </div>`;
   }
 
@@ -279,23 +319,22 @@
     const officers = (window.__officers || []);
     const reassign = `
       <select class="select select-sm" data-act="reassign" data-h="${h.id}" aria-label="Reassign hearing officer">
-        <option value="">Reassign to…</option>
+        <option value="">${t('officer.reassign')}</option>
         ${officers.filter(o => o.userId !== h.assignedOfficerId).map(o => `<option value="${o.userId}">${o.name}</option>`).join('')}
       </select>`;
 
     let primary = '';
     let hint = '';
     if (closed) {
-      primary = `<nys-button data-act="reopen" data-h="${h.id}" variant="outline" label="Recall Hearing" prefixIcon="refresh"></nys-button>`;
+      primary = `<nys-button data-act="reopen" data-h="${h.id}" variant="outline" label="${t('officer.recall')}" prefixIcon="refresh"></nys-button>`;
     } else if (inHearing) {
       primary = `
-        <nys-button data-act="start" data-h="${h.id}" label="Start / Launch Conference" prefixIcon="phone_in_talk"></nys-button>
-        <button class="btn btn-danger" data-act="close" data-h="${h.id}"><nys-icon name="cancel" size="sm"></nys-icon>Close Hearing</button>`;
+        <nys-button data-act="start" data-h="${h.id}" label="${t('officer.start')}" prefixIcon="phone_in_talk"></nys-button>
+        <button class="btn btn-danger" data-act="close" data-h="${h.id}"><nys-icon name="cancel" size="sm"></nys-icon>${t('officer.close')}</button>`;
     } else {
-      primary = `<nys-button data-act="call" data-h="${h.id}" label="Call Hearing" prefixIcon="phone_in_talk" ${ready ? '' : 'disabled'}></nys-button>`;
+      primary = `<nys-button data-act="call" data-h="${h.id}" label="${t('officer.call')}" prefixIcon="phone_in_talk" ${ready ? '' : 'disabled'}></nys-button>`;
       if (!ready) {
-        // Ready requires at least one participant checked in AND available.
-        hint = `<div class="muted blockers"><nys-icon name="progress_activity" size="xs"></nys-icon> Waiting for at least one participant to check in and be available.</div>`;
+        hint = `<div class="muted blockers"><nys-icon name="progress_activity" size="xs"></nys-icon> ${t('officer.waiting')}</div>`;
       }
     }
 
@@ -308,16 +347,16 @@
 
   function renderSummary(h) {
     const has = !!h.summary;
-    const hasTranscript = (h.transcript && h.transcript.length) ? `${h.transcript.length} caption lines` : 'no captions yet';
+    const info = (h.transcript && h.transcript.length) ? `${h.transcript.length} caption lines` : 'no captions yet';
     return `
       <div class="summary-box">
         <div class="summary-head">
-          <span><nys-icon name="edit_square" size="sm"></nys-icon> AI Hearing Summary</span>
-          <button class="btn btn-ghost btn-xs" data-act="gensummary" data-h="${h.id}">${has ? 'Regenerate' : 'Generate'}</button>
+          <span><nys-icon name="edit_square" size="sm"></nys-icon> ${t('summary.title')}</span>
+          <button class="btn btn-ghost btn-xs" data-act="gensummary" data-h="${h.id}">${has ? t('summary.regenerate') : t('summary.generate')}</button>
         </div>
         ${has
           ? `<div class="summary-body">${mdLite(h.summary)}</div>`
-          : `<div class="muted summary-empty">Generates a structured summary from the transcript (${hasTranscript}).</div>`}
+          : `<div class="muted summary-empty">${t('summary.empty', { info })}</div>`}
       </div>`;
   }
 
@@ -422,7 +461,7 @@
         el.onclick = () => loadRecordings();
       } else if (a === 'gensummary') {
         el.onclick = () => {
-          el.textContent = 'Generating…';
+          el.textContent = t('summary.generating');
           fetch('/api/ai/summarize', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hearingId: el.dataset.h, actor: session.name }) })
             .then((r) => r.json())
             .then((d) => toast(`Summary ready (${d.provider === 'anthropic' ? 'AI' : 'demo'}).`, 'info'))

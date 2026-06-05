@@ -202,6 +202,7 @@ production (tracked in §12/§13).
 |---|---|---|---|
 | NFR-UI-1 | UI aligned to NYS IES branding/themes (NYS Design System). | M | ✅ |
 | NFR-UI-2 | Responsive for multi-device use (desktop/tablet/phone). | M | ✅ |
+| NFR-LANG-1 | Multilingual UI for the NYS language-access set (12 languages + English), incl. RTL; appellant can view the interface in their native language. | M | ✅ (English + Spanish baked; other 11 via translation service w/ English fallback) |
 | NFR-A11Y-1 | ADA / Section 508 / WCAG 2.1–2.2 AA compliance, tested with assistive tech. | M | ◑ (built with a11y components; full audit pending) |
 | NFR-PERF-1 | Real-time updates reflected to all participants near-instantly. | M | ✅ (state broadcast) |
 | NFR-SCALE-1 | Horizontal scaling for peak docket load (Socket.io clustering/Redis; SFU for video). | M | ◯ |

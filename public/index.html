@@ -20,18 +20,21 @@
   <section id="login" class="login-screen" aria-labelledby="login-title">
     <div class="login-card">
       <div class="seal" aria-hidden="true">NYS</div>
-      <h1 id="login-title">Virtual Waiting Room</h1>
-      <p class="login-sub">NYS ITS · Integrated Eligibility System (IES) · Fair Hearings</p>
+      <h1 id="login-title" data-i18n="app.title">Virtual Waiting Room</h1>
+      <p class="login-sub" data-i18n="login.subtitle">NYS ITS · Integrated Eligibility System (IES) · Fair Hearings</p>
 
-      <label for="user-select" class="field-label">Sign in via ITS Identity (SSO)</label>
+      <label for="lang-login" class="field-label" data-i18n="common.language">Language</label>
+      <select id="lang-login" class="select lang-select" aria-label="Language"></select>
+
+      <label for="user-select" class="field-label" data-i18n="login.signinVia">Sign in via ITS Identity (SSO)</label>
       <select id="user-select" class="select" aria-describedby="login-hint"></select>
-      <p id="login-hint" class="hint">Demo SSO — your role &amp; permissions are derived from the IAM assertion.</p>
+      <p id="login-hint" class="hint" data-i18n="login.hint">Demo SSO — your role &amp; permissions are derived from the IAM assertion.</p>
 
-      <nys-button id="login-btn" fullWidth label="Sign In via SSO" prefixIcon="lock_filled"></nys-button>
+      <nys-button id="login-btn" fullWidth label="Sign In via SSO" data-i18n-label="login.signin" prefixIcon="lock_filled"></nys-button>
 
       <details class="sso-note">
-        <summary>About authentication</summary>
-        <p>In production this screen is replaced by ITS IAM using <strong>SAML 2.0 / OAuth / OpenID Connect</strong> single sign-on. Role and party-of-interest claims flow from the calling IES application.</p>
+        <summary data-i18n="login.aboutAuth">About authentication</summary>
+        <p data-i18n="login.aboutBody">In production this screen is replaced by ITS IAM using SAML 2.0 / OAuth / OpenID Connect single sign-on. Role and party-of-interest claims flow from the calling IES application.</p>
       </details>
     </div>
   </section>
@@ -51,12 +54,13 @@
         <span id="clock" class="clock" aria-live="off"></span>
       </div>
       <div class="topbar-right">
+        <select id="lang-top" class="lang-select lang-select-top" aria-label="Language"></select>
         <div class="who">
           <span id="who-name" class="who-name"></span>
           <span id="who-role" class="badge badge-role"></span>
         </div>
-        <nys-button id="reset-btn" variant="outline" inverted size="sm" label="Reset" prefixIcon="refresh" title="Reset demo data"></nys-button>
-        <nys-button id="logout-btn" variant="outline" inverted size="sm" label="Sign out" prefixIcon="close"></nys-button>
+        <nys-button id="reset-btn" variant="outline" inverted size="sm" label="Reset" data-i18n-label="nav.reset" prefixIcon="refresh" title="Reset demo data"></nys-button>
+        <nys-button id="logout-btn" variant="outline" inverted size="sm" label="Sign out" data-i18n-label="nav.signout" prefixIcon="close"></nys-button>
       </div>
     </header>
 
@@ -66,16 +70,16 @@
         <div class="toolbar-left">
           <div class="search-wrap">
             <nys-icon name="search" size="sm" class="search-icon" aria-hidden="true"></nys-icon>
-            <input id="search" class="input has-icon" type="search" placeholder="Search hearing #, name, type, agency…" aria-label="Search hearings" />
+            <input id="search" class="input has-icon" type="search" data-i18n-ph="toolbar.search" placeholder="Search hearing #, name, type, agency…" aria-label="Search hearings" />
           </div>
           <select id="sort" class="select select-sm" aria-label="Sort hearings">
-            <option value="time">Sort: Scheduled time</option>
-            <option value="appellant">Sort: Appellant name</option>
-            <option value="status">Sort: Waiting room status</option>
-            <option value="agency">Sort: Agency</option>
+            <option value="time" data-i18n="sort.time">Sort: Scheduled time</option>
+            <option value="appellant" data-i18n="sort.appellant">Sort: Appellant name</option>
+            <option value="status" data-i18n="sort.status">Sort: Waiting room status</option>
+            <option value="agency" data-i18n="sort.agency">Sort: Agency</option>
           </select>
           <select id="filter-status" class="select select-sm" aria-label="Filter by status">
-            <option value="">All statuses</option>
+            <option value="" data-i18n="filter.all">All statuses</option>
           </select>
         </div>
         <div id="view-title" class="view-title"></div>
@@ -150,6 +154,7 @@
   <div id="toasts" class="toasts" aria-live="assertive"></div>
 
   <script src="/socket.io/socket.io.js"></script>
+  <script src="i18n.js"></script>
   <script src="app.js"></script>
   <script src="conference.js"></script>
 </body>
