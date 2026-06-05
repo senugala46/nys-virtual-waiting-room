@@ -217,7 +217,7 @@ box(s,0.5,6.1,12.3,0.7,'Mesh suits hearing-sized rooms (≤ ~8). Scale path: add
 
 /* ============================================================ 8. AI INVOLVEMENT */
 s = pptx.addSlide();
-header(s, 'AI Involvement', 'How AI built it today — and where AI takes the product next');
+header(s, 'AI Involvement', 'Built with AI — and four AI features now built into the product');
 box(s, 0.6, 1.6, 6.0, 0.6, 'Built WITH AI  (today)', { fill:NAVY, line:NAVY, color:WHITE, bold:true, fontSize:15 });
 bullets(s, 0.8, 2.35, 5.7, 2.6, [
   'Entire app — backend, real-time engine, WebRTC video, NYSDS UI — built with an AI coding agent.',
@@ -225,12 +225,12 @@ bullets(s, 0.8, 2.35, 5.7, 2.6, [
   'A single reusable build-prompt (PROMPT.md) regenerates the app in any CLI.',
   'AI cross-checked design-system tokens & icons for fidelity.',
 ], { fontSize:13 });
-box(s, 6.8, 1.6, 6.0, 0.6, 'AI on the Roadmap  (proposed)', { fill:GOLD, line:GOLD, color:NAVYDK, bold:true, fontSize:15 });
+box(s, 6.8, 1.6, 6.0, 0.6, 'AI IN the Product  (built)', { fill:GOLD, line:GOLD, color:NAVYDK, bold:true, fontSize:15 });
 bullets(s, 7.0, 2.35, 5.7, 2.6, [
-  'Live transcription & captioning — for the record and accessibility.',
+  'Live captions & transcription in the hearing (in-browser).',
   'Real-time translation assist for interpreters.',
-  'Predictive wait-times to rebalance dockets.',
   'Automated hearing summaries drafted for the judge.',
+  'Predictive wait-times to rebalance the docket.',
 ], { fontSize:13, color:INK });
 // pipeline
 s.addShape(S.rect, { x:0.5, y:5.15, w:12.3, h:0.04, fill:{color:LINE}, line:{type:'none'} });
@@ -243,7 +243,7 @@ arrow(s,5.7,6.18,6.05,6.18,{color:NAVY,width:2});
 ai(6.1,'Transcript /\nCaptions', GREEN);
 ai(8.5,'Translation /\nInterpreter assist', BLUE);
 ai(10.9,'Summaries /\nWait-time predict', PURPLE);
-s.addText('Proposed features are roadmap, not live in the demo.', { x:6.8, y:4.85, w:6, h:0.3, color:GREY, fontSize:10, italic:true, fontFace:FONT });
+s.addText('Built & demoable. Translation/summaries use a hosted model when an API key is set, with an offline fallback; captions are in-browser; wait-times are a live heuristic.', { x:6.8, y:4.8, w:6, h:0.6, color:GREY, fontSize:9.5, italic:true, fontFace:FONT });
 
 /* ============================================================ 9. DESIGN SYSTEM & A11Y */
 s = pptx.addSlide();
@@ -320,11 +320,12 @@ phaseCard(3.69, 'Phase 2 — Scale & Record', BLUE, [
   'Server-side recording to NYS storage',
   'High-availability + load testing',
 ]);
-phaseCard(6.78, 'Phase 3 — AI-Augment', GOLD, [
-  'Live captions / transcription',
-  'Translation assist for interpreters',
-  'Automated hearing summaries',
-  'Predictive wait-times',
+phaseCard(6.78, 'Phase 3 — AI-Augment ✓ built', GOLD, [
+  'Live captions / transcription ✓',
+  'Translation assist for interpreters ✓',
+  'Automated hearing summaries ✓',
+  'Predictive wait-times ✓',
+  'Next: accuracy + legal-record handling',
 ]);
 phaseCard(9.87, 'Phase 4 — Expand & Optimize', GREEN, [
   'SMS / email notifications',

@@ -103,12 +103,17 @@ directions in *[brackets]*. Timings are a guide.
 > WebRTC video, and the NYS-Design-System UI — was built with an **AI coding agent** in hours,
 > not weeks. We've even packaged a single reusable build prompt so any team can regenerate it.
 >
-> **Second, where AI takes the product next** — and these are on our roadmap, not smoke and
-> mirrors: live **transcription and captioning** for the record and for accessibility;
-> real-time **translation assist** for interpreters; **predictive wait-times** so supervisors
-> can rebalance dockets; and **automated hearing summaries** drafted for the judge. The
-> architecture already has the hooks — audio streams, structured events, and an audit log — to
-> plug these in."
+> **Second, AI is now in the product — not just on a slide.** We built four AI features:
+> **live captions and transcription** in the hearing; **real-time translation assist** so an
+> interpreter sees captions in their language; **automated hearing summaries** drafted for the
+> judge from the transcript; and **predictive wait-times** so supervisors can rebalance the
+> docket. The captions run in the browser; translation and summaries call a hosted model when an
+> API key is configured and fall back to a working offline mode otherwise; wait-times are a live
+> heuristic. From here it's about production-grade accuracy and legal-record handling."
+
+*[If demoing AI live: turn on Captions in the conference (Chrome), pick a language for the
+interpreter translation, then click Generate Summary on the judge's card; show the supervisor's
+Est. wait column.]*
 
 ---
 
@@ -149,9 +154,10 @@ directions in *[brackets]*. Timings are a guide.
 - Add a TURN server (cross-network reliability) and an SFU for large hearings; server-side
   recording to NYS storage; high-availability deployment; load & performance testing.
 
-**Phase 3 — AI-Augment**
-- Live captions / transcription, real-time translation assist for interpreters, automated
-  hearing summaries for judges, and predictive wait-times for docket balancing.
+**Phase 3 — AI-Augment (prototype delivered)**
+- Live captions/transcription, interpreter translation assist, automated hearing summaries, and
+  predictive wait-times are **built**. Next: production-grade accuracy, hosting, and legal-record
+  handling for AI output.
 
 **Phase 4 — Expand & Optimize**
 - SMS/email notifications to appellants, native mobile apps, multilingual UI, analytics &
