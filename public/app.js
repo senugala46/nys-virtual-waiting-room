@@ -206,6 +206,7 @@
       board.className = 'board board-table';
       board.innerHTML = renderSupervisor(list);
       loadRecordings();
+      loadOpenData();
     } else {
       board.className = 'board board-cards';
       board.innerHTML = list.map((h) => renderCard(h, role)).join('');
@@ -438,7 +439,15 @@
           <tr><th>Time</th><th>Hearing</th><th>Appellant</th><th>Agency / Aid</th><th>Officer</th><th>Status</th><th>Checked In</th><th>Est. wait</th><th>Disposition</th></tr>
         </thead>
         <tbody>${rows}</tbody>
-      </table>`;
+      </table>
+      <div class="od-panel">
+        <div class="od-head">
+          <nys-icon name="language" size="sm" aria-hidden="true"></nys-icon>
+          <span>${t('od.title')}</span>
+          <a class="od-src" href="https://data.ny.gov/Human-Services/Supplemental-Nutrition-Assistance-Program-SNAP-Cas/dq6j-8u8z" target="_blank" rel="noopener">data.ny.gov</a>
+        </div>
+        <div id="od-content" class="od-content">…</div>
+      </div>`;
   }
 
   function officerName(id) {
@@ -564,6 +573,69 @@
       const target = $('#rec-list');
       if (target) target.innerHTML = `<div class="rec-empty">Could not load recordings.</div>`;
     });
+  }
+
+  /* -------------------- NYS Open Data analytics (data.ny.gov) -------------------- */
+
+  function fmtNum(n) {
+    n = +n || 0;
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return Math.round(n / 1e3) + 'K';
+    return String(n);
+  }
+
+  function loadOpenData() {
+    const el = $('#od-content');
+    if (!el) return;
+    fetch('/api/opendata/snap').then((r) => r.json()).then((d) => {
+      const target = $('#od-content');
+      if (!target) return;
+      const period = (d.latestMonth ? d.latestMonth + ' ' : '') + d.year;
+      const bd = d.byDistrict || [];
+      const max = Math.max(1, ...bd.map((x) => x.persons));
+      const bars = bd.map((x) => `
+        <div class="od-bar-row">
+          <span class="od-bar-label" title="${x.district}">${x.district}</span>
+          <span class="od-bar"><span class="od-bar-fill" style="width:${(x.persons / max * 100).toFixed(1)}%"></span></span>
+          <span class="od-bar-val">${fmtNum(x.persons)}</span>
+        </div>`).join('');
+
+      const tr = d.trend || [];
+      const tmax = Math.max(1, ...tr.map((p) => p.persons));
+      const tmin = Math.min(tmax, ...tr.map((p) => p.persons));
+      const W = 280, H = 64, pad = 6;
+      const pts = tr.map((p, i) => {
+        const x = tr.length > 1 ? pad + i * (W - 2 * pad) / (tr.length - 1) : W / 2;
+        const y = H - pad - ((p.persons - tmin) / Math.max(1, tmax - tmin)) * (H - 2 * pad);
+        return `${x.toFixed(0)},${y.toFixed(0)}`;
+      }).join(' ');
+      const spark = tr.length
+        ? `<svg class="od-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(--nys-blue)" stroke-width="2.5"/></svg>
+           <div class="od-trend-x">${tr.map((p) => `<span>${(p.month || '').slice(0, 3)}</span>`).join('')}</div>`
+        : '';
+
+      const ta = (d.taShare && d.taShare.ta) || 0, nonta = (d.taShare && d.taShare.nonta) || 0;
+      const tot = Math.max(1, ta + nonta), taPct = Math.round(ta / tot * 100);
+      const share = `
+        <div class="od-share-bar"><span style="width:${taPct}%"></span></div>
+        <div class="od-share-legend"><b>${taPct}%</b> ${t('od.ta')} (${fmtNum(ta)}) · ${100 - taPct}% ${t('od.nonta')} (${fmtNum(nonta)})</div>`;
+
+      target.innerHTML = `
+        ${d.offline ? `<div class="od-offline">${t('od.offline')}</div>` : ''}
+        <div class="od-grid">
+          <div class="od-card">
+            <div class="od-card-title">${t('od.byDistrict', { period })}</div>
+            ${bars}
+          </div>
+          <div class="od-card">
+            <div class="od-card-title">${t('od.trend', { year: d.year })}</div>
+            ${spark}
+            <div class="od-card-title" style="margin-top:12px">${t('od.taShare', { period })}</div>
+            ${share}
+          </div>
+        </div>
+        <div class="od-foot">${t('od.source')}: ${d.source}</div>`;
+    }).catch(() => { const x = $('#od-content'); if (x) x.textContent = 'Could not load open data.'; });
   }
 
   /* -------------------- Utilities -------------------- */

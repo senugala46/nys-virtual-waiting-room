@@ -41,6 +41,8 @@ Single Node process. **`server.js`** is Express + Socket.io with an **in-memory 
 
 **AI features (`ai.js`) are provider-optional.** Live captions are produced **in the browser** via the Web Speech API (`conference.js`), broadcast as `conf:caption`, and final results accumulate into `hearing.transcript`. Translation (interpreter assist) and hearing summaries go through `ai.js`, which calls the **Anthropic API only if `ANTHROPIC_API_KEY` is set** (uses global `fetch`, so Node 18+); otherwise it returns deterministic fallbacks (a small phrase map / an extractive summary) so the demo works offline. Predictive wait-times (`computePredictions` in `server.js`) are a **pure heuristic** — learned avg hearing duration × queue position per officer — included in the state snapshot and surfaced in the supervisor view. When touching these, keep the no-key fallback working.
 
+**NYS open-data analytics.** `GET /api/opendata/snap` powers a charts panel in the supervisor view with real SNAP caseload data from data.ny.gov (Socrata). It is **CSV-first**: it reads the committed snapshot `data/snap-caseloads.csv` (no network at runtime, deterministic for the demo), aggregating with `aggregateSnap`. `?live=1` refreshes from the SODA API (Node's `https`, works on Node 16) and rewrites the CSV; `SOCRATA_APP_TOKEN` is optional. Falls back to an embedded sample if both are unavailable. The data is aggregate benefits *context*, not the app's own hearing data.
+
 ## NYSDS — two non-obvious constraints (do not "fix" these)
 
 The app uses the New York State Design System. `index.html` loads two specific builds, and switching either one silently breaks the UI:

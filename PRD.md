@@ -173,6 +173,7 @@ production (tracked in §12/§13).
 | ID | Requirement | Priority | Status |
 |---|---|---|---|
 | FR-RPT-1 | Provide operational data and metrics from the VWR (counts by status, check-ins, by agency). | M | ✅ |
+| FR-RPT-2 | Surface NYS open-data context (e.g., SNAP caseloads from data.ny.gov) alongside operational metrics. | C | ✅ (CSV snapshot + `?live=1` refresh) |
 | FR-AUD-1 | Record an audit trail of meaningful actions (login, check-in/out, availability, call, deny, start, reassign, close, recall, conference join/leave, host actions, recording saved). | M | ✅ |
 | FR-AUD-2 | Adhere to NYS/IES auditing requirements (immutable/WORM, retention). | M | ◯ |
 

@@ -248,6 +248,27 @@ nys-globalheader { display: block; width: 100%; }
 .pred-banner { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; background: #fff; border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; box-shadow: var(--shadow); font-size: .85rem; }
 .pred-suggest { color: var(--amber); font-weight: 600; }
 
+/* ---------- NYS Open Data analytics panel (supervisor) ---------- */
+.od-panel { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); margin-top: 12px; overflow: hidden; }
+.od-head { display: flex; align-items: center; gap: 8px; background: var(--nys-blue); color: #fff; padding: 10px 14px; font-weight: 700; font-size: .9rem; }
+.od-src { margin-left: auto; color: #fff; font-size: .75rem; text-decoration: underline; opacity: .9; }
+.od-content { padding: 14px; }
+.od-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; }
+.od-card-title { font-size: .82rem; font-weight: 700; color: var(--nys-blue); margin-bottom: 8px; }
+.od-bar-row { display: grid; grid-template-columns: 110px 1fr 46px; align-items: center; gap: 8px; margin-bottom: 5px; font-size: .78rem; }
+.od-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.od-bar { background: var(--bg); border-radius: 4px; height: 14px; overflow: hidden; }
+.od-bar-fill { display: block; height: 100%; background: var(--nys-blue-lt); border-radius: 4px; }
+.od-bar-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; }
+.od-spark { width: 100%; height: 64px; display: block; }
+.od-trend-x { display: flex; justify-content: space-between; font-size: .66rem; color: var(--muted); margin-top: 2px; }
+.od-share-bar { height: 16px; border-radius: 8px; overflow: hidden; background: var(--nys-color-theme-weak, #cddde9); }
+.od-share-bar span { display: block; height: 100%; background: var(--nys-gold); }
+.od-share-legend { font-size: .76rem; color: var(--muted); margin-top: 6px; }
+.od-foot { font-size: .72rem; color: var(--muted); margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.od-offline { background: var(--nys-color-warning-weak, #fefae5); color: var(--amber); padding: 8px 12px; border-radius: 8px; font-size: .8rem; margin-bottom: 12px; }
+@media (max-width: 720px) { .od-grid { grid-template-columns: 1fr; } }
+
 /* ---------- Recordings panel (supervisor) ---------- */
 .rec-panel { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 12px; overflow: hidden; }
 .rec-panel-head { display: flex; align-items: center; gap: 8px; background: var(--nys-blue); color: #fff; padding: 10px 14px; font-weight: 700; font-size: .9rem; }

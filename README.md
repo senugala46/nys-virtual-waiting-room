@@ -39,6 +39,8 @@ captions, and recording features.
 - **Multilingual UI** — NYS language-access set (**12 languages + English**) via a globe
   selector (top-right), with RTL for Arabic/Urdu/Yiddish.
 - **Supervisor oversight** dashboard, **operational reporting**, and a full **audit log**.
+- **NYS open-data analytics** — real SNAP caseload data from **data.ny.gov** (committed CSV
+  snapshot, optional live refresh) charted in the supervisor view for benefits context.
 - Built on the **NYS Design System** (NYSDS); 508/WCAG-minded; responsive.
 
 ## Suggested demo script
@@ -75,6 +77,7 @@ captions, and recording features.
 | Hearing recording | host capture in `conference.js` + `/api/recordings` |
 | AI: captions, translation, summaries, wait-times | `conference.js`, `ai.js`, `computePredictions()` |
 | Multilingual UI (12 languages + English, RTL) | `i18n.js` + globe selector |
+| NYS open-data analytics (data.ny.gov) | `/api/opendata/snap` + Supervisor panel; CSV snapshot in `data/` |
 | ITS IAM SSO (SAML2/OAuth/OIDC) | `/api/login` (mocked assertion) |
 | IES integration (read + write-back) | `seedData()` / `pushToIES()` (stubbed) |
 | NYS branding, responsive, 508/ADA | NYSDS tokens + components in `styles.css` / `index.html` |
@@ -92,6 +95,7 @@ Browser SPA  ──HTTP/Socket.io──▶  Express + Socket.io  (login, directo
 
 - **`server.js`** — Express + Socket.io, in-memory store, status engine, predictions, audit log, REST.
 - **`ai.js`** — provider-optional translation + summaries (Anthropic if `ANTHROPIC_API_KEY`, else fallback).
+- **`data/snap-caseloads.csv`** — committed data.ny.gov snapshot powering the analytics panel (refresh via `GET /api/opendata/snap?live=1`).
 - **`public/`** — single-page app: `index.html`, `styles.css`, `i18n.js`, `app.js`, `conference.js`. No build step.
 
 Integration seams to real NYS systems (IAM, IES) are stubbed and marked `[INTEGRATION]` in

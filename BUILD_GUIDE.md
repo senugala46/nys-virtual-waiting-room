@@ -52,6 +52,7 @@ public/
   i18n.js               # internationalization: 13 languages baked in, t(), RTL
   app.js                # VWR client: role-based rendering, actions, search/sort/filter, recordings, summaries
   conference.js         # WebRTC mesh client: media, controls, chat, host controls, recording, live captions
+data/                   # committed open-data snapshot (snap-caseloads.csv) for the analytics panel
 recordings/             # saved hearing recordings (created at runtime)
 package.json            # pinned dependencies + scripts
 PROMPT.md               # generated: verbatim reproduction kit (see §8)
@@ -90,6 +91,10 @@ CLAUDE.md               # guidance for Claude Code instances
 - **AI features:** live captions (browser Web Speech API) feed a transcript; translation and
   hearing summaries go through `ai.js` (real with `ANTHROPIC_API_KEY`, else fallback); predictive
   wait-times are a heuristic in `computePredictions()`.
+- **NYS open-data analytics:** `GET /api/opendata/snap` serves real SNAP caseload analytics from
+  the **committed `data/snap-caseloads.csv` snapshot** (CSV-first — no network at runtime).
+  `?live=1` refreshes from data.ny.gov's Socrata API and rewrites the CSV; optional
+  `SOCRATA_APP_TOKEN` raises rate limits. Shown in the Supervisor view (charts via inline SVG/divs).
 
 See `CLAUDE.md` for deeper architecture notes.
 

@@ -93,6 +93,7 @@ Create each file at the path in its heading, with the exact contents in the code
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const express = require('express');
 const { Server } = require('socket.io');
 const ai = require('./ai');
@@ -558,6 +559,160 @@ app.get('/api/recordings', (req, res) => {
     res.json({ recordings: files });
   } catch (e) {
     res.json({ recordings: [] });
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * NYS Open Data (data.ny.gov / Socrata SODA API) — real benefits-context
+ * analytics. Server-side proxy with caching + offline fallback. Uses the
+ * built-in https module so it works on Node 16+. Optional SOCRATA_APP_TOKEN
+ * raises rate limits. Dataset: SNAP Caseloads & Expenditures (dq6j-8u8z).
+ * ------------------------------------------------------------------ */
+
+const SNAP_DATASET = 'dq6j-8u8z';
+const SNAP_TTL_MS = 6 * 60 * 60 * 1000;
+let snapCache = null;
+
+function sodaGet(query) {
+  return new Promise((resolve, reject) => {
+    const url = `https://data.ny.gov/resource/${SNAP_DATASET}.json?${query}`;
+    const headers = process.env.SOCRATA_APP_TOKEN ? { 'X-App-Token': process.env.SOCRATA_APP_TOKEN } : {};
+    https.get(url, { headers }, (r) => {
+      if (r.statusCode !== 200) { r.resume(); return reject(new Error('SODA HTTP ' + r.statusCode)); }
+      let body = '';
+      r.on('data', (c) => (body += c));
+      r.on('end', () => { try { resolve(JSON.parse(body)); } catch (e) { reject(e); } });
+    }).on('error', reject);
+  });
+}
+
+const isAggDistrict = (d) => /statewide|new york state|^total|all districts/i.test(d || '');
+
+function aggregateSnap(rows) {
+  const clean = rows.filter((r) => !isAggDistrict(r.district));
+  const ym = (r) => (parseInt(r.year, 10) || 0) * 100 + (parseInt(r.month_code, 10) || 0);
+  let maxK = 0;
+  clean.forEach((r) => { const k = ym(r); if (k > maxK) maxK = k; });
+  const latest = clean.filter((r) => ym(r) === maxK);
+
+  const byDistrict = latest.map((r) => ({
+    district: r.district,
+    persons: parseInt(r.total_snap_persons || '0', 10) || 0,
+    households: parseInt(r.total_snap_households || '0', 10) || 0,
+  })).sort((a, b) => b.persons - a.persons).slice(0, 12);
+
+  // Trend: group by year+month, last 12 periods (crosses the year boundary).
+  const byM = {};
+  clean.forEach((r) => {
+    const k = ym(r);
+    (byM[k] = byM[k] || { k, year: r.year, month: r.month, mc: parseInt(r.month_code, 10) || 0, persons: 0 })
+      .persons += parseInt(r.total_snap_persons || '0', 10) || 0;
+  });
+  const trend = Object.values(byM).sort((a, b) => a.k - b.k).slice(-12)
+    .map((x) => ({ mc: x.mc, month: x.month, year: x.year, persons: x.persons }));
+
+  let ta = 0, nonta = 0;
+  latest.forEach((r) => {
+    ta += parseInt(r.temporary_assistance_snap_persons || '0', 10) || 0;
+    nonta += parseInt(r.non_temporary_assistance_snap_persons || '0', 10) || 0;
+  });
+
+  return {
+    year: (latest[0] && latest[0].year) || '', latestMonth: (latest[0] && latest[0].month) || '',
+    byDistrict, trend, taShare: { ta, nonta },
+    source: 'data.ny.gov — SNAP Caseloads & Expenditures (dq6j-8u8z)',
+    fetchedAt: new Date().toISOString(), offline: false,
+  };
+}
+
+/* CSV snapshot — committed to the repo so the prototype needs no network. */
+const SNAP_CSV = path.join(__dirname, 'data', 'snap-caseloads.csv');
+const SNAP_COLS = ['year', 'month', 'month_code', 'district', 'total_snap_persons', 'total_snap_households', 'total_snap_benefits', 'temporary_assistance_snap_persons', 'non_temporary_assistance_snap_persons'];
+
+function splitCsvLine(line) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === ',') { out.push(cur); cur = ''; }
+    else if (ch === '"') { q = true; }
+    else cur += ch;
+  }
+  out.push(cur); return out;
+}
+function readSnapCsv() {
+  try {
+    if (!fs.existsSync(SNAP_CSV)) return null;
+    const lines = fs.readFileSync(SNAP_CSV, 'utf8').split(/\r?\n/).filter((l) => l.length);
+    if (lines.length < 2) return null;
+    const head = splitCsvLine(lines[0]);
+    return lines.slice(1).map((l) => {
+      const cells = splitCsvLine(l); const o = {};
+      head.forEach((h, i) => (o[h] = cells[i]));
+      return o;
+    });
+  } catch (_) { return null; }
+}
+function saveSnapCsv(rows) {
+  try {
+    const esc = (v) => { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const lines = [SNAP_COLS.join(',')].concat(rows.map((o) => SNAP_COLS.map((c) => esc(o[c])).join(',')));
+    fs.mkdirSync(path.dirname(SNAP_CSV), { recursive: true });
+    fs.writeFileSync(SNAP_CSV, lines.join('\n') + '\n');
+  } catch (_) { /* best effort */ }
+}
+
+function snapFallback() {
+  return {
+    year: '2023', latestMonth: 'December', offline: true,
+    source: 'offline sample (data.ny.gov unreachable)', fetchedAt: new Date().toISOString(),
+    byDistrict: [
+      { district: 'New York City', persons: 1600000, households: 900000 },
+      { district: 'Suffolk', persons: 120000, households: 66000 },
+      { district: 'Erie', persons: 115000, households: 70000 },
+      { district: 'Monroe', persons: 100000, households: 58000 },
+      { district: 'Westchester', persons: 92000, households: 45000 },
+      { district: 'Nassau', persons: 71000, households: 38000 },
+      { district: 'Onondaga', persons: 60000, households: 35000 },
+      { district: 'Albany', persons: 33000, households: 18000 },
+    ],
+    trend: ['January', 'February', 'March', 'April', 'May', 'June'].map((month, i) => ({
+      mc: i + 1, month, persons: 2800000 - i * 9000,
+    })),
+    taShare: { ta: 520000, nonta: 2280000 },
+  };
+}
+
+app.get('/api/opendata/snap', async (req, res) => {
+  if (snapCache && Date.now() - snapCache.t < SNAP_TTL_MS) return res.json(snapCache.data);
+
+  // 1) CSV-first: use the committed local snapshot (no network, deterministic).
+  //    Pass ?live=1 to refresh from data.ny.gov and rewrite the snapshot.
+  if (req.query.live !== '1') {
+    const rows = readSnapCsv();
+    if (rows && rows.length) {
+      const data = aggregateSnap(rows);
+      data.source = 'local snapshot — data.ny.gov SNAP Caseloads (dq6j-8u8z)';
+      snapCache = { t: Date.now(), data };
+      return res.json(data);
+    }
+  }
+
+  // 2) Live fetch (refresh requested, or no snapshot present) — and cache to CSV.
+  try {
+    const rows = await sodaGet(`$where=${encodeURIComponent("year>='2025'")}&$order=${encodeURIComponent('year, month_code')}&$limit=5000`);
+    saveSnapCsv(rows);
+    const data = aggregateSnap(rows);
+    snapCache = { t: Date.now(), data };
+    res.json(data);
+  } catch (e) {
+    const rows = readSnapCsv();
+    if (rows && rows.length) {
+      const data = aggregateSnap(rows); data.source = 'local snapshot (live refresh failed)';
+      return res.json(data);
+    }
+    audit('OPENDATA_FALLBACK', `data.ny.gov fetch failed: ${e.message}`, 'system');
+    res.json(snapFallback());
   }
 });
 
@@ -1374,6 +1529,27 @@ nys-globalheader { display: block; width: 100%; }
 .pred-banner { display: flex; flex-wrap: wrap; gap: 8px 18px; align-items: center; background: #fff; border-radius: var(--radius); padding: 10px 14px; margin-bottom: 12px; box-shadow: var(--shadow); font-size: .85rem; }
 .pred-suggest { color: var(--amber); font-weight: 600; }
 
+/* ---------- NYS Open Data analytics panel (supervisor) ---------- */
+.od-panel { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); margin-top: 12px; overflow: hidden; }
+.od-head { display: flex; align-items: center; gap: 8px; background: var(--nys-blue); color: #fff; padding: 10px 14px; font-weight: 700; font-size: .9rem; }
+.od-src { margin-left: auto; color: #fff; font-size: .75rem; text-decoration: underline; opacity: .9; }
+.od-content { padding: 14px; }
+.od-grid { display: grid; grid-template-columns: 1.3fr 1fr; gap: 18px; }
+.od-card-title { font-size: .82rem; font-weight: 700; color: var(--nys-blue); margin-bottom: 8px; }
+.od-bar-row { display: grid; grid-template-columns: 110px 1fr 46px; align-items: center; gap: 8px; margin-bottom: 5px; font-size: .78rem; }
+.od-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.od-bar { background: var(--bg); border-radius: 4px; height: 14px; overflow: hidden; }
+.od-bar-fill { display: block; height: 100%; background: var(--nys-blue-lt); border-radius: 4px; }
+.od-bar-val { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 600; }
+.od-spark { width: 100%; height: 64px; display: block; }
+.od-trend-x { display: flex; justify-content: space-between; font-size: .66rem; color: var(--muted); margin-top: 2px; }
+.od-share-bar { height: 16px; border-radius: 8px; overflow: hidden; background: var(--nys-color-theme-weak, #cddde9); }
+.od-share-bar span { display: block; height: 100%; background: var(--nys-gold); }
+.od-share-legend { font-size: .76rem; color: var(--muted); margin-top: 6px; }
+.od-foot { font-size: .72rem; color: var(--muted); margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.od-offline { background: var(--nys-color-warning-weak, #fefae5); color: var(--amber); padding: 8px 12px; border-radius: 8px; font-size: .8rem; margin-bottom: 12px; }
+@media (max-width: 720px) { .od-grid { grid-template-columns: 1fr; } }
+
 /* ---------- Recordings panel (supervisor) ---------- */
 .rec-panel { background: #fff; border-radius: var(--radius); box-shadow: var(--shadow); margin-bottom: 12px; overflow: hidden; }
 .rec-panel-head { display: flex; align-items: center; gap: 8px; background: var(--nys-blue); color: #fff; padding: 10px 14px; font-weight: 700; font-size: .9rem; }
@@ -1591,6 +1767,12 @@ body.conf-open { overflow: hidden; }
       'role.agency_witness': 'Agency Witness', 'role.interpreter': 'Interpreter',
       'role.hearing_officer': 'Hearing Officer (ALJ)', 'role.admin_staff': 'Administrative Staff',
       'role.supervisor': 'Supervisor / Clerk',
+      'od.title': 'NYS Open Data — SNAP Caseload',
+      'od.byDistrict': 'SNAP recipients by district ({period})',
+      'od.trend': 'SNAP recipients by month ({year})',
+      'od.taShare': 'Temporary Assistance share ({period})',
+      'od.ta': 'Temp. Assistance', 'od.nonta': 'Non-TA', 'od.source': 'Source',
+      'od.offline': 'Showing offline sample — data.ny.gov was unreachable.',
       'lang.select': 'Select language',
     },
     es: {
@@ -1634,6 +1816,12 @@ body.conf-open { overflow: hidden; }
       'role.agency_witness': 'Testigo de la Agencia', 'role.interpreter': 'Intérprete',
       'role.hearing_officer': 'Juez de Audiencia (ALJ)', 'role.admin_staff': 'Personal Administrativo',
       'role.supervisor': 'Supervisor / Secretario',
+      'od.title': 'Datos Abiertos de NYS — Casos de SNAP',
+      'od.byDistrict': 'Beneficiarios de SNAP por distrito ({period})',
+      'od.trend': 'Beneficiarios de SNAP por mes ({year})',
+      'od.taShare': 'Proporción de Asistencia Temporal ({period})',
+      'od.ta': 'Asistencia Temp.', 'od.nonta': 'No-AT', 'od.source': 'Fuente',
+      'od.offline': 'Mostrando muestra sin conexión — data.ny.gov no disponible.',
       'lang.select': 'Seleccionar idioma',
     },
     zh: {
@@ -2153,6 +2341,7 @@ body.conf-open { overflow: hidden; }
       board.className = 'board board-table';
       board.innerHTML = renderSupervisor(list);
       loadRecordings();
+      loadOpenData();
     } else {
       board.className = 'board board-cards';
       board.innerHTML = list.map((h) => renderCard(h, role)).join('');
@@ -2385,7 +2574,15 @@ body.conf-open { overflow: hidden; }
           <tr><th>Time</th><th>Hearing</th><th>Appellant</th><th>Agency / Aid</th><th>Officer</th><th>Status</th><th>Checked In</th><th>Est. wait</th><th>Disposition</th></tr>
         </thead>
         <tbody>${rows}</tbody>
-      </table>`;
+      </table>
+      <div class="od-panel">
+        <div class="od-head">
+          <nys-icon name="language" size="sm" aria-hidden="true"></nys-icon>
+          <span>${t('od.title')}</span>
+          <a class="od-src" href="https://data.ny.gov/Human-Services/Supplemental-Nutrition-Assistance-Program-SNAP-Cas/dq6j-8u8z" target="_blank" rel="noopener">data.ny.gov</a>
+        </div>
+        <div id="od-content" class="od-content">…</div>
+      </div>`;
   }
 
   function officerName(id) {
@@ -2511,6 +2708,69 @@ body.conf-open { overflow: hidden; }
       const target = $('#rec-list');
       if (target) target.innerHTML = `<div class="rec-empty">Could not load recordings.</div>`;
     });
+  }
+
+  /* -------------------- NYS Open Data analytics (data.ny.gov) -------------------- */
+
+  function fmtNum(n) {
+    n = +n || 0;
+    if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+    if (n >= 1e3) return Math.round(n / 1e3) + 'K';
+    return String(n);
+  }
+
+  function loadOpenData() {
+    const el = $('#od-content');
+    if (!el) return;
+    fetch('/api/opendata/snap').then((r) => r.json()).then((d) => {
+      const target = $('#od-content');
+      if (!target) return;
+      const period = (d.latestMonth ? d.latestMonth + ' ' : '') + d.year;
+      const bd = d.byDistrict || [];
+      const max = Math.max(1, ...bd.map((x) => x.persons));
+      const bars = bd.map((x) => `
+        <div class="od-bar-row">
+          <span class="od-bar-label" title="${x.district}">${x.district}</span>
+          <span class="od-bar"><span class="od-bar-fill" style="width:${(x.persons / max * 100).toFixed(1)}%"></span></span>
+          <span class="od-bar-val">${fmtNum(x.persons)}</span>
+        </div>`).join('');
+
+      const tr = d.trend || [];
+      const tmax = Math.max(1, ...tr.map((p) => p.persons));
+      const tmin = Math.min(tmax, ...tr.map((p) => p.persons));
+      const W = 280, H = 64, pad = 6;
+      const pts = tr.map((p, i) => {
+        const x = tr.length > 1 ? pad + i * (W - 2 * pad) / (tr.length - 1) : W / 2;
+        const y = H - pad - ((p.persons - tmin) / Math.max(1, tmax - tmin)) * (H - 2 * pad);
+        return `${x.toFixed(0)},${y.toFixed(0)}`;
+      }).join(' ');
+      const spark = tr.length
+        ? `<svg class="od-spark" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" aria-hidden="true"><polyline points="${pts}" fill="none" stroke="var(--nys-blue)" stroke-width="2.5"/></svg>
+           <div class="od-trend-x">${tr.map((p) => `<span>${(p.month || '').slice(0, 3)}</span>`).join('')}</div>`
+        : '';
+
+      const ta = (d.taShare && d.taShare.ta) || 0, nonta = (d.taShare && d.taShare.nonta) || 0;
+      const tot = Math.max(1, ta + nonta), taPct = Math.round(ta / tot * 100);
+      const share = `
+        <div class="od-share-bar"><span style="width:${taPct}%"></span></div>
+        <div class="od-share-legend"><b>${taPct}%</b> ${t('od.ta')} (${fmtNum(ta)}) · ${100 - taPct}% ${t('od.nonta')} (${fmtNum(nonta)})</div>`;
+
+      target.innerHTML = `
+        ${d.offline ? `<div class="od-offline">${t('od.offline')}</div>` : ''}
+        <div class="od-grid">
+          <div class="od-card">
+            <div class="od-card-title">${t('od.byDistrict', { period })}</div>
+            ${bars}
+          </div>
+          <div class="od-card">
+            <div class="od-card-title">${t('od.trend', { year: d.year })}</div>
+            ${spark}
+            <div class="od-card-title" style="margin-top:12px">${t('od.taShare', { period })}</div>
+            ${share}
+          </div>
+        </div>
+        <div class="od-foot">${t('od.source')}: ${d.source}</div>`;
+    }).catch(() => { const x = $('#od-content'); if (x) x.textContent = 'Could not load open data.'; });
   }
 
   /* -------------------- Utilities -------------------- */
@@ -3113,6 +3373,8 @@ captions, and recording features.
 - **Multilingual UI** — NYS language-access set (**12 languages + English**) via a globe
   selector (top-right), with RTL for Arabic/Urdu/Yiddish.
 - **Supervisor oversight** dashboard, **operational reporting**, and a full **audit log**.
+- **NYS open-data analytics** — real SNAP caseload data from **data.ny.gov** (committed CSV
+  snapshot, optional live refresh) charted in the supervisor view for benefits context.
 - Built on the **NYS Design System** (NYSDS); 508/WCAG-minded; responsive.
 
 ## Suggested demo script
@@ -3149,6 +3411,7 @@ captions, and recording features.
 | Hearing recording | host capture in `conference.js` + `/api/recordings` |
 | AI: captions, translation, summaries, wait-times | `conference.js`, `ai.js`, `computePredictions()` |
 | Multilingual UI (12 languages + English, RTL) | `i18n.js` + globe selector |
+| NYS open-data analytics (data.ny.gov) | `/api/opendata/snap` + Supervisor panel; CSV snapshot in `data/` |
 | ITS IAM SSO (SAML2/OAuth/OIDC) | `/api/login` (mocked assertion) |
 | IES integration (read + write-back) | `seedData()` / `pushToIES()` (stubbed) |
 | NYS branding, responsive, 508/ADA | NYSDS tokens + components in `styles.css` / `index.html` |
@@ -3166,6 +3429,7 @@ Browser SPA  ──HTTP/Socket.io──▶  Express + Socket.io  (login, directo
 
 - **`server.js`** — Express + Socket.io, in-memory store, status engine, predictions, audit log, REST.
 - **`ai.js`** — provider-optional translation + summaries (Anthropic if `ANTHROPIC_API_KEY`, else fallback).
+- **`data/snap-caseloads.csv`** — committed data.ny.gov snapshot powering the analytics panel (refresh via `GET /api/opendata/snap?live=1`).
 - **`public/`** — single-page app: `index.html`, `styles.css`, `i18n.js`, `app.js`, `conference.js`. No build step.
 
 Integration seams to real NYS systems (IAM, IES) are stubbed and marked `[INTEGRATION]` in
@@ -3222,6 +3486,10 @@ Deliver a complete, runnable project. After building, start the server and verif
   `ANTHROPIC_API_KEY`, else deterministic offline fallback). Predictive wait-times are a heuristic.
 - **Internationalization (`public/i18n.js`):** NYS language-access set (**12 languages + English**)
   baked in for instant offline switching; globe selector (top-right); RTL for Arabic/Urdu/Yiddish.
+- **Open-data analytics:** `GET /api/opendata/snap` serves real SNAP caseload analytics from
+  data.ny.gov (Socrata). **CSV-first** — reads the committed `data/snap-caseloads.csv` snapshot
+  (no network at runtime); `?live=1` refreshes from the SODA API (Node `https`) and rewrites the
+  CSV; falls back to an embedded sample. Charted in the Supervisor view.
 - **Design system:** **NYS Design System (NYSDS)** via npm packages `@nysds/styles` and
   `@nysds/components`. Serve from `node_modules`. **Critical build choices (these tripped us up):**
   - Load the **tokens** stylesheet `@nysds/styles/dist/nysds.min.css` — NOT `nysds-full.min.css`.
@@ -3250,6 +3518,7 @@ public/
   app.js                # VWR client: role-based rendering, actions, search/sort/filter, recordings, summaries
   conference.js         # WebRTC mesh client: media, controls, chat, host controls, recording, captions
   styles.css            # styling mapped onto NYSDS tokens
+data/snap-caseloads.csv # committed data.ny.gov snapshot for the analytics panel
 recordings/             # saved hearing recordings (created at runtime)
 README.md               # how to run + demo script
 ```
@@ -3361,6 +3630,8 @@ a supervisor (Lee Davis), and an admin clerk (Tina Ramos).
   (`express.raw({ type: () => true, limit: '1gb' })`), writes it to `recordings/` (sanitize the
   filename), audits it, returns `{ ok, file, bytes, url }`.
 - `GET /api/recordings` → `[{ file, bytes, savedAt, url }]` (newest first).
+- `GET /api/opendata/snap` → aggregated SNAP analytics (`byDistrict`, `trend`, `taShare`) read
+  CSV-first from `data/snap-caseloads.csv`; `?live=1` refreshes from data.ny.gov + rewrites CSV.
 - Serve `/public` statically; serve NYSDS at `/nysds/styles` and `/nysds/components`; serve
   `recordings/` statically at `/recordings` for playback/download.
 

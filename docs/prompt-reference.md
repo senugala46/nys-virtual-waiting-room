@@ -29,6 +29,10 @@ Deliver a complete, runnable project. After building, start the server and verif
   `ANTHROPIC_API_KEY`, else deterministic offline fallback). Predictive wait-times are a heuristic.
 - **Internationalization (`public/i18n.js`):** NYS language-access set (**12 languages + English**)
   baked in for instant offline switching; globe selector (top-right); RTL for Arabic/Urdu/Yiddish.
+- **Open-data analytics:** `GET /api/opendata/snap` serves real SNAP caseload analytics from
+  data.ny.gov (Socrata). **CSV-first** — reads the committed `data/snap-caseloads.csv` snapshot
+  (no network at runtime); `?live=1` refreshes from the SODA API (Node `https`) and rewrites the
+  CSV; falls back to an embedded sample. Charted in the Supervisor view.
 - **Design system:** **NYS Design System (NYSDS)** via npm packages `@nysds/styles` and
   `@nysds/components`. Serve from `node_modules`. **Critical build choices (these tripped us up):**
   - Load the **tokens** stylesheet `@nysds/styles/dist/nysds.min.css` — NOT `nysds-full.min.css`.
@@ -57,6 +61,7 @@ public/
   app.js                # VWR client: role-based rendering, actions, search/sort/filter, recordings, summaries
   conference.js         # WebRTC mesh client: media, controls, chat, host controls, recording, captions
   styles.css            # styling mapped onto NYSDS tokens
+data/snap-caseloads.csv # committed data.ny.gov snapshot for the analytics panel
 recordings/             # saved hearing recordings (created at runtime)
 README.md               # how to run + demo script
 ```
@@ -168,6 +173,8 @@ a supervisor (Lee Davis), and an admin clerk (Tina Ramos).
   (`express.raw({ type: () => true, limit: '1gb' })`), writes it to `recordings/` (sanitize the
   filename), audits it, returns `{ ok, file, bytes, url }`.
 - `GET /api/recordings` → `[{ file, bytes, savedAt, url }]` (newest first).
+- `GET /api/opendata/snap` → aggregated SNAP analytics (`byDistrict`, `trend`, `taShare`) read
+  CSV-first from `data/snap-caseloads.csv`; `?live=1` refreshes from data.ny.gov + rewrites CSV.
 - Serve `/public` statically; serve NYSDS at `/nysds/styles` and `/nysds/components`; serve
   `recordings/` statically at `/recordings` for playback/download.
 

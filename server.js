@@ -18,6 +18,7 @@
 const path = require('path');
 const fs = require('fs');
 const http = require('http');
+const https = require('https');
 const express = require('express');
 const { Server } = require('socket.io');
 const ai = require('./ai');
@@ -483,6 +484,160 @@ app.get('/api/recordings', (req, res) => {
     res.json({ recordings: files });
   } catch (e) {
     res.json({ recordings: [] });
+  }
+});
+
+/* ------------------------------------------------------------------ *
+ * NYS Open Data (data.ny.gov / Socrata SODA API) — real benefits-context
+ * analytics. Server-side proxy with caching + offline fallback. Uses the
+ * built-in https module so it works on Node 16+. Optional SOCRATA_APP_TOKEN
+ * raises rate limits. Dataset: SNAP Caseloads & Expenditures (dq6j-8u8z).
+ * ------------------------------------------------------------------ */
+
+const SNAP_DATASET = 'dq6j-8u8z';
+const SNAP_TTL_MS = 6 * 60 * 60 * 1000;
+let snapCache = null;
+
+function sodaGet(query) {
+  return new Promise((resolve, reject) => {
+    const url = `https://data.ny.gov/resource/${SNAP_DATASET}.json?${query}`;
+    const headers = process.env.SOCRATA_APP_TOKEN ? { 'X-App-Token': process.env.SOCRATA_APP_TOKEN } : {};
+    https.get(url, { headers }, (r) => {
+      if (r.statusCode !== 200) { r.resume(); return reject(new Error('SODA HTTP ' + r.statusCode)); }
+      let body = '';
+      r.on('data', (c) => (body += c));
+      r.on('end', () => { try { resolve(JSON.parse(body)); } catch (e) { reject(e); } });
+    }).on('error', reject);
+  });
+}
+
+const isAggDistrict = (d) => /statewide|new york state|^total|all districts/i.test(d || '');
+
+function aggregateSnap(rows) {
+  const clean = rows.filter((r) => !isAggDistrict(r.district));
+  const ym = (r) => (parseInt(r.year, 10) || 0) * 100 + (parseInt(r.month_code, 10) || 0);
+  let maxK = 0;
+  clean.forEach((r) => { const k = ym(r); if (k > maxK) maxK = k; });
+  const latest = clean.filter((r) => ym(r) === maxK);
+
+  const byDistrict = latest.map((r) => ({
+    district: r.district,
+    persons: parseInt(r.total_snap_persons || '0', 10) || 0,
+    households: parseInt(r.total_snap_households || '0', 10) || 0,
+  })).sort((a, b) => b.persons - a.persons).slice(0, 12);
+
+  // Trend: group by year+month, last 12 periods (crosses the year boundary).
+  const byM = {};
+  clean.forEach((r) => {
+    const k = ym(r);
+    (byM[k] = byM[k] || { k, year: r.year, month: r.month, mc: parseInt(r.month_code, 10) || 0, persons: 0 })
+      .persons += parseInt(r.total_snap_persons || '0', 10) || 0;
+  });
+  const trend = Object.values(byM).sort((a, b) => a.k - b.k).slice(-12)
+    .map((x) => ({ mc: x.mc, month: x.month, year: x.year, persons: x.persons }));
+
+  let ta = 0, nonta = 0;
+  latest.forEach((r) => {
+    ta += parseInt(r.temporary_assistance_snap_persons || '0', 10) || 0;
+    nonta += parseInt(r.non_temporary_assistance_snap_persons || '0', 10) || 0;
+  });
+
+  return {
+    year: (latest[0] && latest[0].year) || '', latestMonth: (latest[0] && latest[0].month) || '',
+    byDistrict, trend, taShare: { ta, nonta },
+    source: 'data.ny.gov — SNAP Caseloads & Expenditures (dq6j-8u8z)',
+    fetchedAt: new Date().toISOString(), offline: false,
+  };
+}
+
+/* CSV snapshot — committed to the repo so the prototype needs no network. */
+const SNAP_CSV = path.join(__dirname, 'data', 'snap-caseloads.csv');
+const SNAP_COLS = ['year', 'month', 'month_code', 'district', 'total_snap_persons', 'total_snap_households', 'total_snap_benefits', 'temporary_assistance_snap_persons', 'non_temporary_assistance_snap_persons'];
+
+function splitCsvLine(line) {
+  const out = []; let cur = '', q = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (q) { if (ch === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += ch; }
+    else if (ch === ',') { out.push(cur); cur = ''; }
+    else if (ch === '"') { q = true; }
+    else cur += ch;
+  }
+  out.push(cur); return out;
+}
+function readSnapCsv() {
+  try {
+    if (!fs.existsSync(SNAP_CSV)) return null;
+    const lines = fs.readFileSync(SNAP_CSV, 'utf8').split(/\r?\n/).filter((l) => l.length);
+    if (lines.length < 2) return null;
+    const head = splitCsvLine(lines[0]);
+    return lines.slice(1).map((l) => {
+      const cells = splitCsvLine(l); const o = {};
+      head.forEach((h, i) => (o[h] = cells[i]));
+      return o;
+    });
+  } catch (_) { return null; }
+}
+function saveSnapCsv(rows) {
+  try {
+    const esc = (v) => { v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    const lines = [SNAP_COLS.join(',')].concat(rows.map((o) => SNAP_COLS.map((c) => esc(o[c])).join(',')));
+    fs.mkdirSync(path.dirname(SNAP_CSV), { recursive: true });
+    fs.writeFileSync(SNAP_CSV, lines.join('\n') + '\n');
+  } catch (_) { /* best effort */ }
+}
+
+function snapFallback() {
+  return {
+    year: '2023', latestMonth: 'December', offline: true,
+    source: 'offline sample (data.ny.gov unreachable)', fetchedAt: new Date().toISOString(),
+    byDistrict: [
+      { district: 'New York City', persons: 1600000, households: 900000 },
+      { district: 'Suffolk', persons: 120000, households: 66000 },
+      { district: 'Erie', persons: 115000, households: 70000 },
+      { district: 'Monroe', persons: 100000, households: 58000 },
+      { district: 'Westchester', persons: 92000, households: 45000 },
+      { district: 'Nassau', persons: 71000, households: 38000 },
+      { district: 'Onondaga', persons: 60000, households: 35000 },
+      { district: 'Albany', persons: 33000, households: 18000 },
+    ],
+    trend: ['January', 'February', 'March', 'April', 'May', 'June'].map((month, i) => ({
+      mc: i + 1, month, persons: 2800000 - i * 9000,
+    })),
+    taShare: { ta: 520000, nonta: 2280000 },
+  };
+}
+
+app.get('/api/opendata/snap', async (req, res) => {
+  if (snapCache && Date.now() - snapCache.t < SNAP_TTL_MS) return res.json(snapCache.data);
+
+  // 1) CSV-first: use the committed local snapshot (no network, deterministic).
+  //    Pass ?live=1 to refresh from data.ny.gov and rewrite the snapshot.
+  if (req.query.live !== '1') {
+    const rows = readSnapCsv();
+    if (rows && rows.length) {
+      const data = aggregateSnap(rows);
+      data.source = 'local snapshot — data.ny.gov SNAP Caseloads (dq6j-8u8z)';
+      snapCache = { t: Date.now(), data };
+      return res.json(data);
+    }
+  }
+
+  // 2) Live fetch (refresh requested, or no snapshot present) — and cache to CSV.
+  try {
+    const rows = await sodaGet(`$where=${encodeURIComponent("year>='2025'")}&$order=${encodeURIComponent('year, month_code')}&$limit=5000`);
+    saveSnapCsv(rows);
+    const data = aggregateSnap(rows);
+    snapCache = { t: Date.now(), data };
+    res.json(data);
+  } catch (e) {
+    const rows = readSnapCsv();
+    if (rows && rows.length) {
+      const data = aggregateSnap(rows); data.source = 'local snapshot (live refresh failed)';
+      return res.json(data);
+    }
+    audit('OPENDATA_FALLBACK', `data.ny.gov fetch failed: ${e.message}`, 'system');
+    res.json(snapFallback());
   }
 });
 
