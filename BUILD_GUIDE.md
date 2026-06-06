@@ -44,12 +44,14 @@ browser. Only `server.js` changes require a restart (`npm run dev` does this aut
 ## 3. Project layout
 
 ```
-server.js               # Express + Socket.io: state, status engine, REST, WebRTC signaling, recordings
+server.js               # Express + Socket.io: state, status engine, predictions, REST, signaling, recordings
+ai.js                   # provider-optional AI: translation + hearing summaries (Anthropic or offline fallback)
 public/
-  index.html            # SPA shell: login, dashboards, conference overlay
+  index.html            # SPA shell: login, dashboards, conference overlay, globe language menu
   styles.css            # styling mapped onto NYS Design System tokens
-  app.js                # VWR client: role-based rendering, actions, search/sort/filter, recordings panel
-  conference.js         # WebRTC mesh client: media, controls, chat, host controls, recording engine
+  i18n.js               # internationalization: 13 languages baked in, t(), RTL
+  app.js                # VWR client: role-based rendering, actions, search/sort/filter, recordings, summaries
+  conference.js         # WebRTC mesh client: media, controls, chat, host controls, recording, live captions
 recordings/             # saved hearing recordings (created at runtime)
 package.json            # pinned dependencies + scripts
 PROMPT.md               # generated: verbatim reproduction kit (see §8)
@@ -81,6 +83,13 @@ CLAUDE.md               # guidance for Claude Code instances
   server (`POST /api/recordings/:hearingId`).
 - **Roles & SSO:** `POST /api/login` is a **mock IAM assertion** (pick a user from the seeded
   directory). This is the seam where real SSO (e.g. Okta / ITS IAM via OIDC) would plug in.
+- **Multilingual UI:** `public/i18n.js` bakes in the NYS language-access set (12 languages +
+  English), selected via the **globe menu (top-right)**. Switching is instant/offline.
+  `VWRi18n.t('key', vars)` in `app.js` and `data-i18n` attributes in `index.html`; Arabic/Urdu/
+  Yiddish switch to RTL. Add new strings to `i18n.js` (`en` + `es` at minimum).
+- **AI features:** live captions (browser Web Speech API) feed a transcript; translation and
+  hearing summaries go through `ai.js` (real with `ANTHROPIC_API_KEY`, else fallback); predictive
+  wait-times are a heuristic in `computePredictions()`.
 
 See `CLAUDE.md` for deeper architecture notes.
 

@@ -124,8 +124,9 @@ Est. wait column.]*
 
 - **Appellants & their families** — vulnerable New Yorkers appealing decisions about Medicaid,
   SNAP, child care, and temporary assistance. They get clarity instead of anxiety, no wasted
-  trips, guaranteed interpreter presence, and a 508-accessible process. *This is access to
-  justice.*
+  trips, guaranteed interpreter presence, **the entire interface in their native language (the
+  NYS 12-language set + English, including right-to-left scripts)**, and a 508-accessible
+  process. *This is access to justice.*
 - **Representatives & advocates (legal aid)** — see readiness in real time, manage multiple
   hearings at once, and stop losing days to adjournments caused by a missing party.
 - **Hearing Officers (ALJs)** — finally get a live roster and a readiness gate, focus on one

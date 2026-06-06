@@ -3074,41 +3074,65 @@ body.conf-open { overflow: hidden; }
 ````markdown
 # NYS ITS — Virtual Waiting Room (VWR)
 
-A working hackathon demo of the **Virtual Waiting Room** for New York State fair hearings
-(OTDA / DOH / OCFS). It manages **attendance, presence, flow, and waiting time** for Parties
-of Interest (POIs) before a virtual hearing — the gap Cisco WebEx/CMR's stock waiting room
-doesn't cover.
+A working demo of the **Virtual Waiting Room** for New York State fair hearings (OTDA / DOH /
+OCFS). It manages **attendance, presence, readiness, and flow** for Parties of Interest (POIs)
+before a virtual hearing — the gap Cisco WebEx/CMR's stock waiting room doesn't cover — and
+then runs the hearing on **in-house WebRTC video** with **live captions, recording, AI hearing
+summaries**, and a **multilingual (13-language) interface**.
+
+Runs as a single Node process with an in-memory store: no database, no cloud, no API keys
+required.
 
 ## Quick start
 
 ```bash
 npm install
-npm start
+npm start            # http://localhost:3000   (Node 18+ recommended)
 ```
 
-Open **http://localhost:3000**. Open it in **several browser tabs/windows**, sign in as
-different roles, and watch the waiting-room status update **live** across all of them.
+Open it in **several browser tabs/windows**, sign in as different roles, and watch the
+waiting-room status update **live** across all of them. Use **Chrome or Edge** for the video,
+captions, and recording features.
 
-> Tip: Sign in as **Maria Gonzalez** (Appellant), **David Flores** (Rep), the
-> **Spanish Interpreter**, and **ALJ Patricia Burns** in four tabs. As each checks in and
-> goes *Available*, hearing **FH-2026-0001** flips `Not Checked In → Not Ready → Ready`,
-> at which point the ALJ's **Call Hearing** button unlocks.
+> Tip: Sign in as **Maria Gonzalez** (Appellant) in one tab and **ALJ Patricia Burns** in
+> another. The appellant checks in → goes *Available* → hearing **FH-2026-0001** turns
+> **Ready** → the ALJ's **Call Hearing** unlocks. (Readiness rule: a hearing is Ready as soon
+> as **at least one** participant is checked in and available — see note below.)
+
+## Feature highlights
+
+- **Role-based waiting room** for 9 roles, with a real-time **status lifecycle**
+  (`not_checked_in → not_ready → ready → called → recalled → closed`).
+- **In-house video conferencing** (WebRTC mesh) — mute, camera, screen share, chat, host
+  mute/remove. No third-party meeting vendor.
+- **Recording** — the host records a composite of all tiles + mixed audio; the file downloads
+  and is saved server-side; a **Recordings panel** in the supervisor view plays them back.
+- **AI assistance** — **live captions/transcription** (browser Web Speech API), **interpreter
+  translation assist**, **AI hearing summaries** for judges, and **predictive wait-times** for
+  docket balancing.
+- **Multilingual UI** — NYS language-access set (**12 languages + English**) via a globe
+  selector (top-right), with RTL for Arabic/Urdu/Yiddish.
+- **Supervisor oversight** dashboard, **operational reporting**, and a full **audit log**.
+- Built on the **NYS Design System** (NYSDS); 508/WCAG-minded; responsive.
 
 ## Suggested demo script
 
-1. **Appellant / Rep / Interpreter** tabs → *Check In* → *Available*.
-2. Watch status climb to **Ready for Hearing** (all required parties available).
-3. **Hearing Officer (ALJ)** tab → *Call Hearing* → *Start / Launch Conference* (WebEx link appears).
-4. **Supervisor (Lee Davis)** tab → oversight table shows officer-in-hearing banner, live statuses, search & sort.
-5. ALJ → *Close Hearing* with a disposition → status **Closed**; then *Recall* to reopen.
-6. Open the bottom **Activity & Audit Log** drawer → live audit trail + operational metrics.
+1. **Appellant / Rep / Agency Rep** tabs → *Check In* → *Available*; status climbs to **Ready**.
+2. **Hearing Officer (ALJ)** tab → *Call Hearing* → *Start / Launch Conference*.
+3. Everyone clicks **Join Virtual Hearing** → try mute, screen share, chat, **Captions** (pick a
+   language to see interpreter translation), and **Record**.
+4. ALJ card → **Generate** an **AI Hearing Summary** from the transcript.
+5. **Supervisor (Lee Davis)** tab → oversight table (live statuses, **Est. wait** column,
+   docket-balancing tip) + **Recordings panel** + **Activity & Audit Log** drawer.
+6. Click the **globe (top-right)** → pick **Español**, **中文**, **العربية**… → the UI switches
+   instantly.
 
 ## Requirements coverage (from the RFP)
 
 | Requirement | Where |
 |---|---|
 | Role-based permissions (9 roles) | `ROLES` in `server.js`, role scoping in `app.js` |
-| Hearing can't commence until all parties (incl. ALJ) *Ready* | status engine `recomputeStatus()` |
+| Hearing readiness gate before it can commence | status engine `recomputeStatus()` (demo rule: ≥1 ready) |
 | Sort by custom criteria (time, name, status, agency) | toolbar `#sort` |
 | Search on predefined criteria | toolbar `#search` |
 | Check into multiple hearings / view list / check out | party card controls |
@@ -3121,31 +3145,43 @@ different roles, and watch the waiting-room status update **live** across all of
 | Check-in time & participant status tracking | participant model |
 | Operational reporting & metrics | `/api/report` + report strip |
 | Auditing | `auditLog` + audit drawer |
+| In-house video conferencing (replaces WebEx/CMR) | `conference.js` (WebRTC) + `conf:*` signaling |
+| Hearing recording | host capture in `conference.js` + `/api/recordings` |
+| AI: captions, translation, summaries, wait-times | `conference.js`, `ai.js`, `computePredictions()` |
+| Multilingual UI (12 languages + English, RTL) | `i18n.js` + globe selector |
 | ITS IAM SSO (SAML2/OAuth/OIDC) | `/api/login` (mocked assertion) |
 | IES integration (read + write-back) | `seedData()` / `pushToIES()` (stubbed) |
-| Cisco WebEx/CMR conferencing | `startHearing()` (stubbed launch) |
-| NYS branding, responsive, 508/ADA | `styles.css` (skip link, focus rings, contrast, breakpoints) |
+| NYS branding, responsive, 508/ADA | NYSDS tokens + components in `styles.css` / `index.html` |
 
 ## Architecture
 
 ```
-Browser SPA  ──HTTP──▶  Express  (login, directory, report, static)
-     ▲                     │
-     └──── Socket.io ──────┘   live state snapshots broadcast on every change
-                           │
-                    in-memory store (seeded from "IES")
+Browser SPA  ──HTTP/Socket.io──▶  Express + Socket.io  (login, directory, report,
+     ▲   │                          recordings, AI, WebRTC signaling, static)
+     │   └──── live state snapshots broadcast on every change ──────┘
+     │                                    │
+     └─ WebRTC peer-to-peer (mesh) ─┐     └─ in-memory store (seeded from "IES")
+        media never touches server  ┘        + recordings/ on disk
 ```
 
-- **`server.js`** — Express + Socket.io, in-memory store, status engine, audit log.
-- **`public/`** — single-page app (`index.html`, `app.js`, `styles.css`), no build step.
+- **`server.js`** — Express + Socket.io, in-memory store, status engine, predictions, audit log, REST.
+- **`ai.js`** — provider-optional translation + summaries (Anthropic if `ANTHROPIC_API_KEY`, else fallback).
+- **`public/`** — single-page app: `index.html`, `styles.css`, `i18n.js`, `app.js`, `conference.js`. No build step.
 
-Integration seams to real NYS systems (IAM, IES, WebEx/CMR) are stubbed and marked
-`[INTEGRATION]` in `server.js`.
+Integration seams to real NYS systems (IAM, IES) are stubbed and marked `[INTEGRATION]` in
+`server.js`. See `BUILD_GUIDE.md` for setup/run details, `CLAUDE.md` for architecture, and
+`PRD.md` for requirements.
 
 ## Notes
 
-This is a demo: data is in-memory and resets on server restart (or via the **Reset** button).
-No real PII, no external network calls.
+- Data is in-memory and resets on server restart (or the **Reset** button). `recordings/` on
+  disk is the only persisted artifact. No real PII.
+- **Video/captions/recording** need a secure context (works on `localhost`; HTTPS elsewhere)
+  and are best in **Chrome/Edge**.
+- **AI translation & summaries** are real with `ANTHROPIC_API_KEY` (Node 18+); otherwise they
+  use an offline fallback. **Captions** and **wait-times** need no key.
+- The 13-language UI is fully functional offline; English & Spanish are the most reviewed —
+  production would use NYS's official language-access translations.
 ````
 
 ---
@@ -3181,6 +3217,11 @@ Deliver a complete, runnable project. After building, start the server and verif
   is the signaling channel.
 - **Recording:** client-side **`MediaRecorder`** (host composites all tiles to a canvas + mixes
   audio); the file is downloaded locally AND uploaded to the server (`recordings/` on disk).
+- **AI features (`ai.js`):** live captions/transcription (browser **Web Speech API**), interpreter
+  translation assist, and AI hearing summaries — **provider-optional** (Anthropic API if
+  `ANTHROPIC_API_KEY`, else deterministic offline fallback). Predictive wait-times are a heuristic.
+- **Internationalization (`public/i18n.js`):** NYS language-access set (**12 languages + English**)
+  baked in for instant offline switching; globe selector (top-right); RTL for Arabic/Urdu/Yiddish.
 - **Design system:** **NYS Design System (NYSDS)** via npm packages `@nysds/styles` and
   `@nysds/components`. Serve from `node_modules`. **Critical build choices (these tripped us up):**
   - Load the **tokens** stylesheet `@nysds/styles/dist/nysds.min.css` — NOT `nysds-full.min.css`.
@@ -3201,11 +3242,13 @@ Deliver a complete, runnable project. After building, start the server and verif
 
 ```
 package.json            # deps: express, socket.io, @nysds/components, @nysds/styles
-server.js               # Express + Socket.io: state, status engine, REST, signaling
+server.js               # Express + Socket.io: state, status engine, predictions, REST, signaling
+ai.js                   # provider-optional AI: translation + summaries (Anthropic or fallback)
 public/
-  index.html            # SPA shell: login, dashboards, conference overlay
-  app.js                # VWR client: role-based rendering, actions, search/sort/filter
-  conference.js         # WebRTC mesh client: media, controls, chat, host controls, recording
+  index.html            # SPA shell: login, dashboards, conference overlay, globe language menu
+  i18n.js               # 13 languages baked in, t(), RTL
+  app.js                # VWR client: role-based rendering, actions, search/sort/filter, recordings, summaries
+  conference.js         # WebRTC mesh client: media, controls, chat, host controls, recording, captions
   styles.css            # styling mapped onto NYSDS tokens
 recordings/             # saved hearing recordings (created at runtime)
 README.md               # how to run + demo script
@@ -3269,6 +3312,23 @@ Track **check-in times** and per-participant availability.
   - IES source-of-truth → `seedData()`.
   - IES write-back → `pushToIES()` (logs to audit).
   - Cisco WebEx/CMR → replaced by the in-house conference.
+
+### AI assistance
+- **Live captions / transcription** in the conference (browser Web Speech API), broadcast via
+  `conf:caption` and accumulated into `hearing.transcript`.
+- **Interpreter translation assist** — a language selector translates live captions via
+  `POST /api/ai/translate`.
+- **Automated hearing summaries** for the judge from the transcript via `POST /api/ai/summarize`.
+- **Predictive wait-times** per hearing + docket-balancing suggestions (`GET /api/predictions`,
+  also in the state snapshot), shown on cards and in the supervisor table.
+- All AI is **provider-optional** (`ai.js`): real with `ANTHROPIC_API_KEY` (Node 18+), else a
+  deterministic offline fallback. Captions and wait-times need no key.
+
+### Multilingual UI
+- The interface supports the **NYS language-access set (12 languages + English)** via a globe
+  selector (top-right). All languages are **baked into `i18n.js`** for instant offline switching;
+  Arabic/Urdu/Yiddish render RTL. Static HTML uses `data-i18n*` attributes; dynamic strings use
+  `VWRi18n.t()`. (The conference overlay is not yet localized.)
 
 ---
 

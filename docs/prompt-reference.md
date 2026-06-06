@@ -24,6 +24,11 @@ Deliver a complete, runnable project. After building, start the server and verif
   is the signaling channel.
 - **Recording:** client-side **`MediaRecorder`** (host composites all tiles to a canvas + mixes
   audio); the file is downloaded locally AND uploaded to the server (`recordings/` on disk).
+- **AI features (`ai.js`):** live captions/transcription (browser **Web Speech API**), interpreter
+  translation assist, and AI hearing summaries — **provider-optional** (Anthropic API if
+  `ANTHROPIC_API_KEY`, else deterministic offline fallback). Predictive wait-times are a heuristic.
+- **Internationalization (`public/i18n.js`):** NYS language-access set (**12 languages + English**)
+  baked in for instant offline switching; globe selector (top-right); RTL for Arabic/Urdu/Yiddish.
 - **Design system:** **NYS Design System (NYSDS)** via npm packages `@nysds/styles` and
   `@nysds/components`. Serve from `node_modules`. **Critical build choices (these tripped us up):**
   - Load the **tokens** stylesheet `@nysds/styles/dist/nysds.min.css` — NOT `nysds-full.min.css`.
@@ -44,11 +49,13 @@ Deliver a complete, runnable project. After building, start the server and verif
 
 ```
 package.json            # deps: express, socket.io, @nysds/components, @nysds/styles
-server.js               # Express + Socket.io: state, status engine, REST, signaling
+server.js               # Express + Socket.io: state, status engine, predictions, REST, signaling
+ai.js                   # provider-optional AI: translation + summaries (Anthropic or fallback)
 public/
-  index.html            # SPA shell: login, dashboards, conference overlay
-  app.js                # VWR client: role-based rendering, actions, search/sort/filter
-  conference.js         # WebRTC mesh client: media, controls, chat, host controls, recording
+  index.html            # SPA shell: login, dashboards, conference overlay, globe language menu
+  i18n.js               # 13 languages baked in, t(), RTL
+  app.js                # VWR client: role-based rendering, actions, search/sort/filter, recordings, summaries
+  conference.js         # WebRTC mesh client: media, controls, chat, host controls, recording, captions
   styles.css            # styling mapped onto NYSDS tokens
 recordings/             # saved hearing recordings (created at runtime)
 README.md               # how to run + demo script
@@ -112,6 +119,23 @@ Track **check-in times** and per-participant availability.
   - IES source-of-truth → `seedData()`.
   - IES write-back → `pushToIES()` (logs to audit).
   - Cisco WebEx/CMR → replaced by the in-house conference.
+
+### AI assistance
+- **Live captions / transcription** in the conference (browser Web Speech API), broadcast via
+  `conf:caption` and accumulated into `hearing.transcript`.
+- **Interpreter translation assist** — a language selector translates live captions via
+  `POST /api/ai/translate`.
+- **Automated hearing summaries** for the judge from the transcript via `POST /api/ai/summarize`.
+- **Predictive wait-times** per hearing + docket-balancing suggestions (`GET /api/predictions`,
+  also in the state snapshot), shown on cards and in the supervisor table.
+- All AI is **provider-optional** (`ai.js`): real with `ANTHROPIC_API_KEY` (Node 18+), else a
+  deterministic offline fallback. Captions and wait-times need no key.
+
+### Multilingual UI
+- The interface supports the **NYS language-access set (12 languages + English)** via a globe
+  selector (top-right). All languages are **baked into `i18n.js`** for instant offline switching;
+  Arabic/Urdu/Yiddish render RTL. Static HTML uses `data-i18n*` attributes; dynamic strings use
+  `VWRi18n.t()`. (The conference overlay is not yet localized.)
 
 ---
 
