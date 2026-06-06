@@ -114,6 +114,16 @@ const RECORDINGS_DIR = path.join(__dirname, 'recordings');
 if (!fs.existsSync(RECORDINGS_DIR)) fs.mkdirSync(RECORDINGS_DIR);
 app.use('/recordings', express.static(RECORDINGS_DIR));
 
+// Evidence/document store. Files on disk + a JSON metadata index (survives restart).
+const EVIDENCE_DIR = path.join(__dirname, 'evidence');
+if (!fs.existsSync(EVIDENCE_DIR)) fs.mkdirSync(EVIDENCE_DIR);
+app.use('/evidence', express.static(EVIDENCE_DIR));
+const EVIDENCE_INDEX = path.join(EVIDENCE_DIR, 'index.json');
+const EVIDENCE_ALLOWED = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'txt', 'csv', 'doc', 'docx', 'xls', 'xlsx'];
+let evidence = [];
+try { evidence = JSON.parse(fs.readFileSync(EVIDENCE_INDEX, 'utf8')); } catch (_) { evidence = []; }
+function saveEvidenceIndex() { try { fs.writeFileSync(EVIDENCE_INDEX, JSON.stringify(evidence, null, 2)); } catch (_) {} }
+
 const PORT = process.env.PORT || 3000;
 
 /* ------------------------------------------------------------------ *
@@ -393,6 +403,7 @@ function snapshot() {
     hearings,
     auditLog: auditLog.slice(0, 50),
     predictions: computePredictions(),
+    evidence,
     serverTime: new Date().toISOString(),
   };
 }
@@ -562,6 +573,38 @@ app.get('/api/recordings', (req, res) => {
   }
 });
 
+// Upload an evidence document for a hearing (raw binary body; metadata in query).
+app.post('/api/evidence/:hearingId', express.raw({ type: () => true, limit: '25mb' }), (req, res) => {
+  const h = findHearing(req.params.hearingId);
+  if (!h) return res.status(404).json({ error: 'Unknown hearing' });
+  if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty file' });
+  const orig = String(req.query.name || 'document');
+  const ext = (orig.split('.').pop() || '').toLowerCase();
+  if (!EVIDENCE_ALLOWED.includes(ext)) {
+    return res.status(415).json({ error: `File type ".${ext}" not allowed` });
+  }
+  const safe = `${h.id}__${Date.now()}__${orig.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  try {
+    fs.writeFileSync(path.join(EVIDENCE_DIR, safe), req.body);
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+  const rec = {
+    hearingId: h.id, file: safe, name: orig,
+    uploader: String(req.query.uploader || 'Unknown'), role: String(req.query.role || ''),
+    bytes: req.body.length, ts: new Date().toISOString(), url: `/evidence/${encodeURIComponent(safe)}`,
+  };
+  evidence.push(rec);
+  saveEvidenceIndex();
+  audit('EVIDENCE_UPLOAD', `${rec.uploader} uploaded "${orig}" (${rec.bytes} bytes) to ${h.hearingNumber}`, rec.uploader);
+  pushToIES(h, `evidence uploaded (${orig})`);
+  broadcast();
+  res.json(rec);
+});
+
+// List evidence for a hearing.
+app.get('/api/evidence/:hearingId', (req, res) => {
+  res.json({ evidence: evidence.filter((e) => e.hearingId === req.params.hearingId) });
+});
+
 /* ------------------------------------------------------------------ *
  * NYS Open Data (data.ny.gov / Socrata SODA API) — real benefits-context
  * analytics. Server-side proxy with caching + offline fallback. Uses the
@@ -684,11 +727,12 @@ function snapFallback() {
 }
 
 app.get('/api/opendata/snap', async (req, res) => {
-  if (snapCache && Date.now() - snapCache.t < SNAP_TTL_MS) return res.json(snapCache.data);
+  const live = req.query.live === '1';
+  if (!live && snapCache && Date.now() - snapCache.t < SNAP_TTL_MS) return res.json(snapCache.data);
 
   // 1) CSV-first: use the committed local snapshot (no network, deterministic).
   //    Pass ?live=1 to refresh from data.ny.gov and rewrite the snapshot.
-  if (req.query.live !== '1') {
+  if (!live) {
     const rows = readSnapCsv();
     if (rows && rows.length) {
       const data = aggregateSnap(rows);
@@ -1495,6 +1539,17 @@ nys-globalheader { display: block; width: 100%; }
 .dot-gray { background: #c2cad3; }
 .limited-note { color: var(--muted); font-style: italic; font-size: .82rem; }
 
+/* Evidence / documents on the hearing card */
+.evidence { border-top: 1px dashed var(--line); padding-top: 8px; }
+.ev-head { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: .78rem; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin-bottom: 6px; }
+.ev-head .btn { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.ev-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.ev-list li { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 6px; font-size: .82rem; }
+.ev-name { font-weight: 600; color: var(--nys-blue-lt); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-name:hover { text-decoration: underline; }
+.ev-meta { grid-column: 2; font-size: .7rem; color: var(--muted); }
+.ev-empty { font-size: .8rem; }
+
 .conf-link {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   background: var(--green); color: #fff; text-decoration: none; border: none; cursor: pointer;
@@ -1773,6 +1828,8 @@ body.conf-open { overflow: hidden; }
       'od.taShare': 'Temporary Assistance share ({period})',
       'od.ta': 'Temp. Assistance', 'od.nonta': 'Non-TA', 'od.source': 'Source',
       'od.offline': 'Showing offline sample — data.ny.gov was unreachable.',
+      'ev.title': 'Upload Documents', 'ev.upload': 'Upload', 'ev.none': 'No documents uploaded.',
+      'ev.uploading': 'Uploading {name}…', 'ev.uploaded': 'Uploaded {name}',
       'lang.select': 'Select language',
     },
     es: {
@@ -1822,6 +1879,8 @@ body.conf-open { overflow: hidden; }
       'od.taShare': 'Proporción de Asistencia Temporal ({period})',
       'od.ta': 'Asistencia Temp.', 'od.nonta': 'No-AT', 'od.source': 'Fuente',
       'od.offline': 'Mostrando muestra sin conexión — data.ny.gov no disponible.',
+      'ev.title': 'Subir Documentos', 'ev.upload': 'Subir', 'ev.none': 'No se han subido documentos.',
+      'ev.uploading': 'Subiendo {name}…', 'ev.uploaded': 'Subido {name}',
       'lang.select': 'Seleccionar idioma',
     },
     zh: {
@@ -2372,6 +2431,9 @@ body.conf-open { overflow: hidden; }
   function predFor(h) {
     return (state.predictions && state.predictions.perHearing && state.predictions.perHearing[h.id]) || null;
   }
+  function evidenceFor(h) {
+    return (state.evidence || []).filter((e) => e.hearingId === h.id);
+  }
   function waitChip(h) {
     const p = predFor(h);
     if (!p || h.status === 'closed') return '';
@@ -2419,6 +2481,7 @@ body.conf-open { overflow: hidden; }
         ${officerControls}
         ${isOfficer ? renderSummary(h) : ''}
         <div class="card-participants">${participantsHtml}</div>
+        ${renderEvidence(h, (!!mine || isOfficer))}
         ${h.conferenceUrl ? `<button class="conf-link" data-act="joinconf" data-h="${h.id}" data-hn="${h.hearingNumber}" data-host="${isOfficer && h.assignedOfficerId === session.sub ? '1' : '0'}"><nys-icon name="phone_in_talk" size="sm"></nys-icon> ${t('card.join')}</button>` : ''}
       </article>`;
   }
@@ -2502,6 +2565,41 @@ body.conf-open { overflow: hidden; }
     </div>`;
   }
 
+  function renderEvidence(h, canUpload) {
+    const items = evidenceFor(h);
+    const allowUpload = canUpload && h.status !== 'closed';
+    return `
+      <div class="evidence">
+        <div class="ev-head">
+          <nys-icon name="attach_file" size="sm" aria-hidden="true"></nys-icon>
+          <span>${t('ev.title')} (${items.length})</span>
+          ${allowUpload ? `<button class="btn btn-ghost btn-xs" data-act="uploadev" data-h="${h.id}"><nys-icon name="upload_file" size="xs"></nys-icon> ${t('ev.upload')}</button>` : ''}
+        </div>
+        ${items.length
+          ? `<ul class="ev-list">${items.map((e) => `
+              <li>
+                <nys-icon name="attach_file" size="sm" aria-hidden="true"></nys-icon>
+                <a class="ev-name" href="${e.url}" target="_blank" rel="noopener" title="${e.name}">${e.name}</a>
+                <span class="ev-meta">${e.uploader}${e.role ? ' · ' + roleLabel(e.role) : ''} · ${fmtBytes(e.bytes)} · ${fmtTime(e.ts)}</span>
+              </li>`).join('')}</ul>`
+          : `<div class="muted ev-empty">${t('ev.none')}</div>`}
+      </div>`;
+  }
+
+  function uploadEvidence(file, hearingId) {
+    if (!file) return;
+    const q = new URLSearchParams({ name: file.name, uploader: session.name, role: session.role });
+    toast(t('ev.uploading', { name: file.name }));
+    fetch(`/api/evidence/${hearingId}?${q.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    })
+      .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e))))
+      .then((rec) => toast(t('ev.uploaded', { name: rec.name })))
+      .catch((e) => toast((e && e.error) || 'Upload failed', 'error'));
+  }
+
   function renderSummary(h) {
     const has = !!h.summary;
     const info = (h.transcript && h.transcript.length) ? `${h.transcript.length} caption lines` : 'no captions yet';
@@ -2550,6 +2648,7 @@ body.conf-open { overflow: hidden; }
           <td>${officerName(h.assignedOfficerId)}</td>
           <td>${statusBadge(h.status)}</td>
           <td>${checkedIn}/${h.participants.length}</td>
+          <td>${evidenceFor(h).length || '—'}</td>
           <td>${wait}</td>
           <td>${h.summary ? '<nys-icon name="edit_square" size="sm" title="Summary available"></nys-icon> ' : ''}${h.disposition || '—'}</td>
         </tr>`;
@@ -2571,7 +2670,7 @@ body.conf-open { overflow: hidden; }
       </div>
       <table class="sup-table">
         <thead>
-          <tr><th>Time</th><th>Hearing</th><th>Appellant</th><th>Agency / Aid</th><th>Officer</th><th>Status</th><th>Checked In</th><th>Est. wait</th><th>Disposition</th></tr>
+          <tr><th>Time</th><th>Hearing</th><th>Appellant</th><th>Agency / Aid</th><th>Officer</th><th>Status</th><th>Checked In</th><th>Docs</th><th>Est. wait</th><th>Disposition</th></tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
@@ -2624,6 +2723,14 @@ body.conf-open { overflow: hidden; }
         el.onclick = () => window.VWRConf.join(el.dataset.h, el.dataset.hn, el.dataset.host === '1');
       } else if (a === 'refreshrec') {
         el.onclick = () => loadRecordings();
+      } else if (a === 'uploadev') {
+        el.onclick = () => {
+          const inp = document.createElement('input');
+          inp.type = 'file';
+          inp.accept = '.pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.txt,.csv,.doc,.docx,.xls,.xlsx';
+          inp.onchange = () => { if (inp.files && inp.files[0]) uploadEvidence(inp.files[0], el.dataset.h); };
+          inp.click();
+        };
       } else if (a === 'gensummary') {
         el.onclick = () => {
           el.textContent = t('summary.generating');
@@ -3365,6 +3472,8 @@ captions, and recording features.
   (`not_checked_in → not_ready → ready → called → recalled → closed`).
 - **In-house video conferencing** (WebRTC mesh) — mute, camera, screen share, chat, host
   mute/remove. No third-party meeting vendor.
+- **Evidence upload** — participants attach documents (PDF/images/Office/text) to their hearing;
+  files are stored server-side and listed on the hearing card (with a count in the supervisor table).
 - **Recording** — the host records a composite of all tiles + mixed audio; the file downloads
   and is saved server-side; a **Recordings panel** in the supervisor view plays them back.
 - **AI assistance** — **live captions/transcription** (browser Web Speech API), **interpreter
@@ -3409,6 +3518,7 @@ captions, and recording features.
 | Auditing | `auditLog` + audit drawer |
 | In-house video conferencing (replaces WebEx/CMR) | `conference.js` (WebRTC) + `conf:*` signaling |
 | Hearing recording | host capture in `conference.js` + `/api/recordings` |
+| Evidence/document upload | `/api/evidence/:hearingId` + evidence section on the card |
 | AI: captions, translation, summaries, wait-times | `conference.js`, `ai.js`, `computePredictions()` |
 | Multilingual UI (12 languages + English, RTL) | `i18n.js` + globe selector |
 | NYS open-data analytics (data.ny.gov) | `/api/opendata/snap` + Supervisor panel; CSV snapshot in `data/` |
@@ -3630,6 +3740,9 @@ a supervisor (Lee Davis), and an admin clerk (Tina Ramos).
   (`express.raw({ type: () => true, limit: '1gb' })`), writes it to `recordings/` (sanitize the
   filename), audits it, returns `{ ok, file, bytes, url }`.
 - `GET /api/recordings` → `[{ file, bytes, savedAt, url }]` (newest first).
+- `POST /api/evidence/:hearingId?name=&uploader=&role=` → raw-body upload (allow-listed
+  extensions, 25 MB) saved to `evidence/` + JSON index; `GET /api/evidence/:hearingId` lists them.
+  The `evidence` array is included in the state snapshot (cards + supervisor "Docs" count update live).
 - `GET /api/opendata/snap` → aggregated SNAP analytics (`byDistrict`, `trend`, `taShare`) read
   CSV-first from `data/snap-caseloads.csv`; `?live=1` refreshes from data.ny.gov + rewrites CSV.
 - Serve `/public` statically; serve NYSDS at `/nysds/styles` and `/nysds/components`; serve

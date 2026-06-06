@@ -54,6 +54,7 @@ public/
   conference.js         # WebRTC mesh client: media, controls, chat, host controls, recording, live captions
 data/                   # committed open-data snapshot (snap-caseloads.csv) for the analytics panel
 recordings/             # saved hearing recordings (created at runtime)
+evidence/               # uploaded evidence documents + index.json (created at runtime)
 package.json            # pinned dependencies + scripts
 PROMPT.md               # generated: verbatim reproduction kit (see §8)
 build-prompt.js         # regenerates PROMPT.md from the source files
@@ -82,6 +83,9 @@ CLAUDE.md               # guidance for Claude Code instances
 - **Recording** is host-side: the Hearing Officer's browser composites all tiles to a canvas,
   mixes audio, records with `MediaRecorder`, then downloads the `.webm` and uploads it to the
   server (`POST /api/recordings/:hearingId`).
+- **Evidence upload:** participants attach documents via `POST /api/evidence/:hearingId` (raw
+  body, metadata in query; allow-listed extensions, 25 MB cap). Files go to `evidence/` with a
+  JSON index; the list flows into the state snapshot so cards update live. `GET /api/evidence/:hearingId` lists them.
 - **Roles & SSO:** `POST /api/login` is a **mock IAM assertion** (pick a user from the seeded
   directory). This is the seam where real SSO (e.g. Okta / ITS IAM via OIDC) would plug in.
 - **Multilingual UI:** `public/i18n.js` bakes in the NYS language-access set (12 languages +

@@ -77,6 +77,8 @@
       'od.taShare': 'Temporary Assistance share ({period})',
       'od.ta': 'Temp. Assistance', 'od.nonta': 'Non-TA', 'od.source': 'Source',
       'od.offline': 'Showing offline sample — data.ny.gov was unreachable.',
+      'ev.title': 'Upload Documents', 'ev.upload': 'Upload', 'ev.none': 'No documents uploaded.',
+      'ev.uploading': 'Uploading {name}…', 'ev.uploaded': 'Uploaded {name}',
       'lang.select': 'Select language',
     },
     es: {
@@ -126,6 +128,8 @@
       'od.taShare': 'Proporción de Asistencia Temporal ({period})',
       'od.ta': 'Asistencia Temp.', 'od.nonta': 'No-AT', 'od.source': 'Fuente',
       'od.offline': 'Mostrando muestra sin conexión — data.ny.gov no disponible.',
+      'ev.title': 'Subir Documentos', 'ev.upload': 'Subir', 'ev.none': 'No se han subido documentos.',
+      'ev.uploading': 'Subiendo {name}…', 'ev.uploaded': 'Subido {name}',
       'lang.select': 'Seleccionar idioma',
     },
     zh: {

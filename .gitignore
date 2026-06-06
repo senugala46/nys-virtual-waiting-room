@@ -3,6 +3,7 @@ node_modules/
 
 # Runtime artifacts
 recordings/
+evidence/
 *.log
 npm-debug.log*
 

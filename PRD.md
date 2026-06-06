@@ -125,6 +125,7 @@ production (tracked in §12/§13).
 | FR-WR-5 | A hearing is **Ready** (Call enabled) per the readiness rule. *Production rule:* all required parties (incl. ALJ) ready. *Demo rule:* at least one participant checked in & available. | M | ✅ (demo rule; configurable) |
 | FR-WR-6 | `called` / `recalled` / `closed` are officer-controlled and not auto-recomputed. | M | ✅ |
 | FR-WR-7 | Participants view the statuses of other participants by role (subject to FR-ROLE-2). | S | ✅ |
+| FR-WR-8 | Participants upload evidence/documents to a hearing; parties & officer view them. | S | ✅ (allow-listed types, server-stored) |
 
 ### 7.4 Hearing Officer (ALJ) controls
 | ID | Requirement | Priority | Status |

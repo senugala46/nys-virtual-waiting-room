@@ -39,6 +39,16 @@ const RECORDINGS_DIR = path.join(__dirname, 'recordings');
 if (!fs.existsSync(RECORDINGS_DIR)) fs.mkdirSync(RECORDINGS_DIR);
 app.use('/recordings', express.static(RECORDINGS_DIR));
 
+// Evidence/document store. Files on disk + a JSON metadata index (survives restart).
+const EVIDENCE_DIR = path.join(__dirname, 'evidence');
+if (!fs.existsSync(EVIDENCE_DIR)) fs.mkdirSync(EVIDENCE_DIR);
+app.use('/evidence', express.static(EVIDENCE_DIR));
+const EVIDENCE_INDEX = path.join(EVIDENCE_DIR, 'index.json');
+const EVIDENCE_ALLOWED = ['pdf', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'heic', 'txt', 'csv', 'doc', 'docx', 'xls', 'xlsx'];
+let evidence = [];
+try { evidence = JSON.parse(fs.readFileSync(EVIDENCE_INDEX, 'utf8')); } catch (_) { evidence = []; }
+function saveEvidenceIndex() { try { fs.writeFileSync(EVIDENCE_INDEX, JSON.stringify(evidence, null, 2)); } catch (_) {} }
+
 const PORT = process.env.PORT || 3000;
 
 /* ------------------------------------------------------------------ *
@@ -318,6 +328,7 @@ function snapshot() {
     hearings,
     auditLog: auditLog.slice(0, 50),
     predictions: computePredictions(),
+    evidence,
     serverTime: new Date().toISOString(),
   };
 }
@@ -485,6 +496,38 @@ app.get('/api/recordings', (req, res) => {
   } catch (e) {
     res.json({ recordings: [] });
   }
+});
+
+// Upload an evidence document for a hearing (raw binary body; metadata in query).
+app.post('/api/evidence/:hearingId', express.raw({ type: () => true, limit: '25mb' }), (req, res) => {
+  const h = findHearing(req.params.hearingId);
+  if (!h) return res.status(404).json({ error: 'Unknown hearing' });
+  if (!req.body || !req.body.length) return res.status(400).json({ error: 'Empty file' });
+  const orig = String(req.query.name || 'document');
+  const ext = (orig.split('.').pop() || '').toLowerCase();
+  if (!EVIDENCE_ALLOWED.includes(ext)) {
+    return res.status(415).json({ error: `File type ".${ext}" not allowed` });
+  }
+  const safe = `${h.id}__${Date.now()}__${orig.replace(/[^a-zA-Z0-9._-]/g, '_')}`;
+  try {
+    fs.writeFileSync(path.join(EVIDENCE_DIR, safe), req.body);
+  } catch (e) { return res.status(500).json({ error: e.message }); }
+  const rec = {
+    hearingId: h.id, file: safe, name: orig,
+    uploader: String(req.query.uploader || 'Unknown'), role: String(req.query.role || ''),
+    bytes: req.body.length, ts: new Date().toISOString(), url: `/evidence/${encodeURIComponent(safe)}`,
+  };
+  evidence.push(rec);
+  saveEvidenceIndex();
+  audit('EVIDENCE_UPLOAD', `${rec.uploader} uploaded "${orig}" (${rec.bytes} bytes) to ${h.hearingNumber}`, rec.uploader);
+  pushToIES(h, `evidence uploaded (${orig})`);
+  broadcast();
+  res.json(rec);
+});
+
+// List evidence for a hearing.
+app.get('/api/evidence/:hearingId', (req, res) => {
+  res.json({ evidence: evidence.filter((e) => e.hearingId === req.params.hearingId) });
 });
 
 /* ------------------------------------------------------------------ *

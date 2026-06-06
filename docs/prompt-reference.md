@@ -173,6 +173,9 @@ a supervisor (Lee Davis), and an admin clerk (Tina Ramos).
   (`express.raw({ type: () => true, limit: '1gb' })`), writes it to `recordings/` (sanitize the
   filename), audits it, returns `{ ok, file, bytes, url }`.
 - `GET /api/recordings` → `[{ file, bytes, savedAt, url }]` (newest first).
+- `POST /api/evidence/:hearingId?name=&uploader=&role=` → raw-body upload (allow-listed
+  extensions, 25 MB) saved to `evidence/` + JSON index; `GET /api/evidence/:hearingId` lists them.
+  The `evidence` array is included in the state snapshot (cards + supervisor "Docs" count update live).
 - `GET /api/opendata/snap` → aggregated SNAP analytics (`byDistrict`, `trend`, `taShare`) read
   CSV-first from `data/snap-caseloads.csv`; `?live=1` refreshes from data.ny.gov + rewrites CSV.
 - Serve `/public` statically; serve NYSDS at `/nysds/styles` and `/nysds/components`; serve

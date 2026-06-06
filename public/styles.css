@@ -214,6 +214,17 @@ nys-globalheader { display: block; width: 100%; }
 .dot-gray { background: #c2cad3; }
 .limited-note { color: var(--muted); font-style: italic; font-size: .82rem; }
 
+/* Evidence / documents on the hearing card */
+.evidence { border-top: 1px dashed var(--line); padding-top: 8px; }
+.ev-head { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: .78rem; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin-bottom: 6px; }
+.ev-head .btn { margin-left: auto; text-transform: none; letter-spacing: 0; }
+.ev-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 5px; }
+.ev-list li { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 6px; font-size: .82rem; }
+.ev-name { font-weight: 600; color: var(--nys-blue-lt); text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-name:hover { text-decoration: underline; }
+.ev-meta { grid-column: 2; font-size: .7rem; color: var(--muted); }
+.ev-empty { font-size: .8rem; }
+
 .conf-link {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px;
   background: var(--green); color: #fff; text-decoration: none; border: none; cursor: pointer;

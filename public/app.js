@@ -237,6 +237,9 @@
   function predFor(h) {
     return (state.predictions && state.predictions.perHearing && state.predictions.perHearing[h.id]) || null;
   }
+  function evidenceFor(h) {
+    return (state.evidence || []).filter((e) => e.hearingId === h.id);
+  }
   function waitChip(h) {
     const p = predFor(h);
     if (!p || h.status === 'closed') return '';
@@ -284,6 +287,7 @@
         ${officerControls}
         ${isOfficer ? renderSummary(h) : ''}
         <div class="card-participants">${participantsHtml}</div>
+        ${renderEvidence(h, (!!mine || isOfficer))}
         ${h.conferenceUrl ? `<button class="conf-link" data-act="joinconf" data-h="${h.id}" data-hn="${h.hearingNumber}" data-host="${isOfficer && h.assignedOfficerId === session.sub ? '1' : '0'}"><nys-icon name="phone_in_talk" size="sm"></nys-icon> ${t('card.join')}</button>` : ''}
       </article>`;
   }
@@ -367,6 +371,41 @@
     </div>`;
   }
 
+  function renderEvidence(h, canUpload) {
+    const items = evidenceFor(h);
+    const allowUpload = canUpload && h.status !== 'closed';
+    return `
+      <div class="evidence">
+        <div class="ev-head">
+          <nys-icon name="attach_file" size="sm" aria-hidden="true"></nys-icon>
+          <span>${t('ev.title')} (${items.length})</span>
+          ${allowUpload ? `<button class="btn btn-ghost btn-xs" data-act="uploadev" data-h="${h.id}"><nys-icon name="upload_file" size="xs"></nys-icon> ${t('ev.upload')}</button>` : ''}
+        </div>
+        ${items.length
+          ? `<ul class="ev-list">${items.map((e) => `
+              <li>
+                <nys-icon name="attach_file" size="sm" aria-hidden="true"></nys-icon>
+                <a class="ev-name" href="${e.url}" target="_blank" rel="noopener" title="${e.name}">${e.name}</a>
+                <span class="ev-meta">${e.uploader}${e.role ? ' · ' + roleLabel(e.role) : ''} · ${fmtBytes(e.bytes)} · ${fmtTime(e.ts)}</span>
+              </li>`).join('')}</ul>`
+          : `<div class="muted ev-empty">${t('ev.none')}</div>`}
+      </div>`;
+  }
+
+  function uploadEvidence(file, hearingId) {
+    if (!file) return;
+    const q = new URLSearchParams({ name: file.name, uploader: session.name, role: session.role });
+    toast(t('ev.uploading', { name: file.name }));
+    fetch(`/api/evidence/${hearingId}?${q.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    })
+      .then((r) => (r.ok ? r.json() : r.json().then((e) => Promise.reject(e))))
+      .then((rec) => toast(t('ev.uploaded', { name: rec.name })))
+      .catch((e) => toast((e && e.error) || 'Upload failed', 'error'));
+  }
+
   function renderSummary(h) {
     const has = !!h.summary;
     const info = (h.transcript && h.transcript.length) ? `${h.transcript.length} caption lines` : 'no captions yet';
@@ -415,6 +454,7 @@
           <td>${officerName(h.assignedOfficerId)}</td>
           <td>${statusBadge(h.status)}</td>
           <td>${checkedIn}/${h.participants.length}</td>
+          <td>${evidenceFor(h).length || '—'}</td>
           <td>${wait}</td>
           <td>${h.summary ? '<nys-icon name="edit_square" size="sm" title="Summary available"></nys-icon> ' : ''}${h.disposition || '—'}</td>
         </tr>`;
@@ -436,7 +476,7 @@
       </div>
       <table class="sup-table">
         <thead>
-          <tr><th>Time</th><th>Hearing</th><th>Appellant</th><th>Agency / Aid</th><th>Officer</th><th>Status</th><th>Checked In</th><th>Est. wait</th><th>Disposition</th></tr>
+          <tr><th>Time</th><th>Hearing</th><th>Appellant</th><th>Agency / Aid</th><th>Officer</th><th>Status</th><th>Checked In</th><th>Docs</th><th>Est. wait</th><th>Disposition</th></tr>
         </thead>
         <tbody>${rows}</tbody>
       </table>
@@ -489,6 +529,14 @@
         el.onclick = () => window.VWRConf.join(el.dataset.h, el.dataset.hn, el.dataset.host === '1');
       } else if (a === 'refreshrec') {
         el.onclick = () => loadRecordings();
+      } else if (a === 'uploadev') {
+        el.onclick = () => {
+          const inp = document.createElement('input');
+          inp.type = 'file';
+          inp.accept = '.pdf,.png,.jpg,.jpeg,.gif,.webp,.heic,.txt,.csv,.doc,.docx,.xls,.xlsx';
+          inp.onchange = () => { if (inp.files && inp.files[0]) uploadEvidence(inp.files[0], el.dataset.h); };
+          inp.click();
+        };
       } else if (a === 'gensummary') {
         el.onclick = () => {
           el.textContent = t('summary.generating');
