@@ -609,11 +609,12 @@ function snapFallback() {
 }
 
 app.get('/api/opendata/snap', async (req, res) => {
-  if (snapCache && Date.now() - snapCache.t < SNAP_TTL_MS) return res.json(snapCache.data);
+  const live = req.query.live === '1';
+  if (!live && snapCache && Date.now() - snapCache.t < SNAP_TTL_MS) return res.json(snapCache.data);
 
   // 1) CSV-first: use the committed local snapshot (no network, deterministic).
   //    Pass ?live=1 to refresh from data.ny.gov and rewrite the snapshot.
-  if (req.query.live !== '1') {
+  if (!live) {
     const rows = readSnapCsv();
     if (rows && rows.length) {
       const data = aggregateSnap(rows);
