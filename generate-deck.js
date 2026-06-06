@@ -81,7 +81,7 @@ bullets(s, 0.8, 2.35, 5.7, 4.4, [
   'Live check-in, availability & presence tracking.',
   'Readiness state machine gates when a hearing can start.',
   'Judge controls: call/recall, deny, start, reassign, close.',
-  'Supervisor oversight: search, sort, filter, live statuses, recordings.',
+  'Supervisor oversight: search, sort, filter, live statuses, recordings, predictive wait-times.',
   'Reporting, audit log, and a multilingual UI (12 languages + English, RTL).',
 ], { fontSize:13 });
 box(s, 6.8, 1.6, 6.0, 0.6, 'In-house Video + AI', { fill:GREEN, line:GREEN, color:WHITE, bold:true, fontSize:15 });
@@ -320,12 +320,11 @@ phaseCard(3.69, 'Phase 2 — Scale & Record', BLUE, [
   'Server-side recording to NYS storage',
   'High-availability + load testing',
 ]);
-phaseCard(6.78, 'Phase 3 — AI-Augment ✓ built', GOLD, [
-  'Live captions / transcription ✓',
-  'Translation assist for interpreters ✓',
-  'Automated hearing summaries ✓',
-  'Predictive wait-times ✓',
-  'Next: accuracy + legal-record handling',
+phaseCard(6.78, 'Phase 3 — AI Hardening', GOLD, [
+  'Production STT / MT / LLM hosting',
+  'Accuracy tuning & evaluation',
+  'Legal-record handling for AI output',
+  'Professional language-access translations',
 ]);
 phaseCard(9.87, 'Phase 4 — Expand & Optimize', GREEN, [
   'SMS / email notifications',
