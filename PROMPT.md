@@ -162,6 +162,7 @@ const STICKY = new Set([WR_STATUS.CALLED, WR_STATUS.RECALLED, WR_STATUS.CLOSED])
 let hearings = [];           // the live working set for "today"
 const auditLog = [];         // spec §11 — auditing
 let nextEventId = 1;
+let nextReqId = 1;           // adjournment/withdrawal request ids
 
 function audit(action, detail, actor) {
   auditLog.unshift({
@@ -197,6 +198,7 @@ function seedData() {
     conferenceUrl: null,
     transcript: [],          // [{ from, role, text, ts }] — from live captions
     summary: null,           // AI/extractive hearing summary
+    requests: [],            // adjournment / withdrawal requests from attendees
     calledAt: null, startedAt: null, closedAt: null, // for wait-time prediction
     participants: p.participants.map((pp) => ({
       userId: pp.userId,
@@ -905,6 +907,44 @@ io.on('connection', (socket) => {
     broadcast();
   });
 
+  // --- Attendee: request an adjournment (postpone) or withdrawal (drop appeal) ---
+  socket.on('requestAction', ({ hearingId, userId, type, reason }) => {
+    const h = findHearing(hearingId);
+    const p = findParticipant(h, userId);
+    if (!h || !p || h.status === WR_STATUS.CLOSED) return;
+    if (type !== 'adjournment' && type !== 'withdrawal') return;
+    const req = {
+      id: 'R' + (nextReqId++), type,
+      by: { userId: p.userId, name: p.name, role: p.role },
+      reason: String(reason || '').slice(0, 300),
+      status: 'pending', ts: new Date().toISOString(),
+    };
+    h.requests.push(req);
+    audit('REQUEST', `${p.name} requested ${type}${req.reason ? ': ' + req.reason : ''} — ${h.hearingNumber}`, actor());
+    pushToIES(h, `${type} requested`);
+    broadcast();
+  });
+
+  // --- Hearing Officer: grant or deny a request ---
+  socket.on('resolveRequest', ({ hearingId, requestId, decision }) => {
+    const h = findHearing(hearingId);
+    if (!h) return;
+    const req = (h.requests || []).find((r) => r.id === requestId);
+    if (!req || req.status !== 'pending') return;
+    req.status = decision === 'granted' ? 'granted' : 'denied';
+    req.decidedTs = new Date().toISOString();
+    req.decidedBy = actor();
+    if (req.status === 'granted') {
+      h.status = WR_STATUS.CLOSED;
+      h.disposition = req.type === 'adjournment' ? 'Adjourned' : 'Withdrawn';
+      h.closedAt = new Date().toISOString();
+      h.conferenceUrl = null;
+    }
+    audit(`REQUEST_${req.status.toUpperCase()}`, `${req.type} ${req.status} for ${h.hearingNumber}`, actor());
+    pushToIES(h, `${req.type} ${req.status}`);
+    broadcast();
+  });
+
   // --- Demo convenience: reset everything ---
   socket.on('resetDemo', () => {
     seedData();
@@ -1345,6 +1385,9 @@ module.exports = { translate, translateBatch, summarize, LANGS, HAS_AI };
   --radius: var(--nys-radius-lg, 8px);
   --shadow: 0 1px 3px rgba(16,32,55,.10), 0 4px 16px rgba(16,32,55,.06);
   font-family: var(--nys-font-family-sans, "Proxima Nova", "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif);
+  /* Base size for all NYSDS icons (inherits into component shadow DOM). Bumped up
+     because the default (~1cap) renders icons too small. */
+  --nys-icon-size: 1.25em;
 }
 
 body { font-family: var(--nys-font-family-sans, "Segoe UI", system-ui, sans-serif); }
@@ -1539,6 +1582,22 @@ nys-globalheader { display: block; width: 100%; }
 .dot-gray { background: #c2cad3; }
 .limited-note { color: var(--muted); font-style: italic; font-size: .82rem; }
 
+/* Adjournment / withdrawal requests */
+.requests { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
+.req-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.req-status { font-size: .78rem; color: var(--muted); }
+.req-status.req-granted { color: var(--green); }
+.req-status.req-denied { color: var(--red); }
+.req-status.req-pending { color: var(--amber); }
+.officer-requests { border: 1px solid var(--nys-color-warning-weak, #fefae5); background: #fffdf5; border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.or-title { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: .8rem; color: var(--amber); margin-bottom: 6px; }
+.or-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 0; border-top: 1px solid var(--line); }
+.or-item:first-of-type { border-top: none; }
+.or-info { font-size: .82rem; }
+.or-reason { font-size: .76rem; color: var(--muted); font-style: italic; }
+.or-btns { display: flex; gap: 6px; flex-shrink: 0; }
+.req-flag { color: var(--amber); font-weight: 600; font-size: .76rem; }
+
 /* Evidence / documents on the hearing card */
 .evidence { border-top: 1px dashed var(--line); padding-top: 8px; }
 .ev-head { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: .78rem; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin-bottom: 6px; }
@@ -1720,9 +1779,9 @@ body.conf-open { overflow: hidden; }
 .cbtn .cic { width: 24px; height: 24px; }
 #c-rec .cic { color: #ff5c5c; }            /* record dot always red */
 .tbadge { display: inline-flex; align-items: center; gap: 4px; }
-.tbadge .cic { width: 16px; height: 16px; }
+.tbadge .cic { width: 20px; height: 20px; }
 .thbtn { display: inline-flex; align-items: center; gap: 4px; }
-.thbtn .cic { width: 14px; height: 14px; }
+.thbtn .cic { width: 16px; height: 16px; }
 .cbtn:hover { background: #2d333b; }
 .cbtn.off { background: #5a2222; }            /* mic/cam disabled */
 .cbtn.active { background: var(--nys-blue-lt); }  /* share/record active */
@@ -1830,6 +1889,12 @@ body.conf-open { overflow: hidden; }
       'od.offline': 'Showing offline sample — data.ny.gov was unreachable.',
       'ev.title': 'Upload Documents', 'ev.upload': 'Upload', 'ev.none': 'No documents uploaded.',
       'ev.uploading': 'Uploading {name}…', 'ev.uploaded': 'Uploaded {name}',
+      'req.adjourn': 'Request Adjournment', 'req.withdraw': 'Request Withdrawal',
+      'req.adjReason': 'Reason for the adjournment request (optional):',
+      'req.wdrReason': 'Reason for the withdrawal request (optional):',
+      'req.pendingTitle': 'Pending requests', 'req.by': 'by', 'req.grant': 'Grant', 'req.deny': 'Deny', 'req.requested': 'requested',
+      'reqtype.adjournment': 'Adjournment', 'reqtype.withdrawal': 'Withdrawal',
+      'reqstatus.pending': 'pending', 'reqstatus.granted': 'granted', 'reqstatus.denied': 'denied',
       'lang.select': 'Select language',
     },
     es: {
@@ -1881,6 +1946,12 @@ body.conf-open { overflow: hidden; }
       'od.offline': 'Mostrando muestra sin conexión — data.ny.gov no disponible.',
       'ev.title': 'Subir Documentos', 'ev.upload': 'Subir', 'ev.none': 'No se han subido documentos.',
       'ev.uploading': 'Subiendo {name}…', 'ev.uploaded': 'Subido {name}',
+      'req.adjourn': 'Solicitar Aplazamiento', 'req.withdraw': 'Solicitar Retiro',
+      'req.adjReason': 'Motivo de la solicitud de aplazamiento (opcional):',
+      'req.wdrReason': 'Motivo de la solicitud de retiro (opcional):',
+      'req.pendingTitle': 'Solicitudes pendientes', 'req.by': 'por', 'req.grant': 'Conceder', 'req.deny': 'Denegar', 'req.requested': 'solicitado',
+      'reqtype.adjournment': 'Aplazamiento', 'reqtype.withdrawal': 'Retiro',
+      'reqstatus.pending': 'pendiente', 'reqstatus.granted': 'concedido', 'reqstatus.denied': 'denegado',
       'lang.select': 'Seleccionar idioma',
     },
     zh: {
@@ -2346,6 +2417,9 @@ body.conf-open { overflow: hidden; }
     },
     reopen: (hearingId) => socket.emit('reopen', { hearingId }),
     reassign: (hearingId, newOfficerId) => socket.emit('reassign', { hearingId, newOfficerId }),
+    reqAdj: (hearingId) => { const r = prompt(t('req.adjReason'), ''); if (r !== null) socket.emit('requestAction', { hearingId, userId: session.sub, type: 'adjournment', reason: r }); },
+    reqWdr: (hearingId) => { const r = prompt(t('req.wdrReason'), ''); if (r !== null) socket.emit('requestAction', { hearingId, userId: session.sub, type: 'withdrawal', reason: r }); },
+    resolveReq: (hearingId, requestId, decision) => socket.emit('resolveRequest', { hearingId, requestId, decision }),
   };
 
   /* -------------------- Filtering / sorting -------------------- */
@@ -2478,7 +2552,9 @@ body.conf-open { overflow: hidden; }
           ${waitChip(h)}
         </div>
         ${myControls}
+        ${mine && !isOfficer ? renderAttendeeRequests(h, mine) : ''}
         ${officerControls}
+        ${isOfficer ? renderOfficerRequests(h) : ''}
         ${isOfficer ? renderSummary(h) : ''}
         <div class="card-participants">${participantsHtml}</div>
         ${renderEvidence(h, (!!mine || isOfficer))}
@@ -2563,6 +2639,40 @@ body.conf-open { overflow: hidden; }
       ${!closed ? reassign : ''}
       ${hint}
     </div>`;
+  }
+
+  function renderAttendeeRequests(h, mine) {
+    const canAdj = ['appellant', 'appellant_rep', 'agency_rep'].includes(mine.role);
+    const canWdr = ['appellant', 'appellant_rep'].includes(mine.role);
+    if (!canAdj && !canWdr) return '';
+    const open = h.status !== 'closed';
+    const myReqs = (h.requests || []).filter((r) => r.by.userId === mine.userId);
+    const btns = open ? `
+      <div class="req-actions">
+        ${canAdj ? `<button class="btn btn-ghost btn-sm" data-act="reqadj" data-h="${h.id}"><nys-icon name="calendar_month" size="xs"></nys-icon> ${t('req.adjourn')}</button>` : ''}
+        ${canWdr ? `<button class="btn btn-ghost btn-sm" data-act="reqwdr" data-h="${h.id}"><nys-icon name="cancel" size="xs"></nys-icon> ${t('req.withdraw')}</button>` : ''}
+      </div>` : '';
+    const statuses = myReqs.map((r) =>
+      `<div class="req-status req-${r.status}">${t('reqtype.' + r.type)}: <b>${t('reqstatus.' + r.status)}</b></div>`).join('');
+    if (!btns && !statuses) return '';
+    return `<div class="requests">${btns}${statuses}</div>`;
+  }
+
+  function renderOfficerRequests(h) {
+    const pending = (h.requests || []).filter((r) => r.status === 'pending');
+    if (!pending.length) return '';
+    return `
+      <div class="officer-requests">
+        <div class="or-title"><nys-icon name="notifications" size="sm"></nys-icon> ${t('req.pendingTitle')}</div>
+        ${pending.map((r) => `
+          <div class="or-item">
+            <div class="or-info"><b>${t('reqtype.' + r.type)}</b> — ${t('req.by')} ${r.by.name} (${roleLabel(r.by.role)})${r.reason ? `<div class="or-reason">“${r.reason}”</div>` : ''}</div>
+            <div class="or-btns">
+              <button class="btn btn-primary btn-xs" data-act="reqgrant" data-h="${h.id}" data-r="${r.id}">${t('req.grant')}</button>
+              <button class="btn btn-danger btn-xs" data-act="reqdeny" data-h="${h.id}" data-r="${r.id}">${t('req.deny')}</button>
+            </div>
+          </div>`).join('')}
+      </div>`;
   }
 
   function renderEvidence(h, canUpload) {
@@ -2650,7 +2760,7 @@ body.conf-open { overflow: hidden; }
           <td>${checkedIn}/${h.participants.length}</td>
           <td>${evidenceFor(h).length || '—'}</td>
           <td>${wait}</td>
-          <td>${h.summary ? '<nys-icon name="edit_square" size="sm" title="Summary available"></nys-icon> ' : ''}${h.disposition || '—'}</td>
+          <td>${(() => { const pr = (h.requests || []).find((r) => r.status === 'pending'); return pr ? `<span class="req-flag">⏳ ${t('reqtype.' + pr.type)} ${t('req.requested')}</span> ` : ''; })()}${h.summary ? '<nys-icon name="edit_square" size="sm" title="Summary available"></nys-icon> ' : ''}${h.disposition || '—'}</td>
         </tr>`;
     }).join('');
 
@@ -2719,6 +2829,14 @@ body.conf-open { overflow: hidden; }
         el.onclick = () => act.close(el.dataset.h);
       } else if (a === 'reopen') {
         el.onclick = () => act.reopen(el.dataset.h);
+      } else if (a === 'reqadj') {
+        el.onclick = () => act.reqAdj(el.dataset.h);
+      } else if (a === 'reqwdr') {
+        el.onclick = () => act.reqWdr(el.dataset.h);
+      } else if (a === 'reqgrant') {
+        el.onclick = () => act.resolveReq(el.dataset.h, el.dataset.r, 'granted');
+      } else if (a === 'reqdeny') {
+        el.onclick = () => act.resolveReq(el.dataset.h, el.dataset.r, 'denied');
       } else if (a === 'joinconf') {
         el.onclick = () => window.VWRConf.join(el.dataset.h, el.dataset.hn, el.dataset.host === '1');
       } else if (a === 'refreshrec') {
@@ -3472,6 +3590,9 @@ captions, and recording features.
   (`not_checked_in → not_ready → ready → called → recalled → closed`).
 - **In-house video conferencing** (WebRTC mesh) — mute, camera, screen share, chat, host
   mute/remove. No third-party meeting vendor.
+- **Adjournment & withdrawal requests** — attendees can request to postpone (adjourn) or drop
+  (withdraw) their appeal; the Hearing Officer grants/denies, and a grant closes the hearing with
+  the matching disposition.
 - **Evidence upload** — participants attach documents (PDF/images/Office/text) to their hearing;
   files are stored server-side and listed on the hearing card (with a count in the supervisor table).
 - **Recording** — the host records a composite of all tiles + mixed audio; the file downloads
@@ -3519,6 +3640,7 @@ captions, and recording features.
 | In-house video conferencing (replaces WebEx/CMR) | `conference.js` (WebRTC) + `conf:*` signaling |
 | Hearing recording | host capture in `conference.js` + `/api/recordings` |
 | Evidence/document upload | `/api/evidence/:hearingId` + evidence section on the card |
+| Adjournment / withdrawal requests | `requestAction` / `resolveRequest` socket events + card UI |
 | AI: captions, translation, summaries, wait-times | `conference.js`, `ai.js`, `computePredictions()` |
 | Multilingual UI (12 languages + English, RTL) | `i18n.js` + globe selector |
 | NYS open-data analytics (data.ny.gov) | `/api/opendata/snap` + Supervisor panel; CSV snapshot in `data/` |
@@ -3758,8 +3880,10 @@ participant** is checked in → `not_checked_in`; else if **at least one** parti
 guard; emit a `toast` error if violated), `deny`, `startHearing` (set a `conferenceUrl`,
 flip ready→called), `reassign` (set `assignedOfficerId`, **remove the previous officer** from
 participants, add the new one), `closeHearing` (set disposition, clear conferenceUrl),
-`reopen` (→ recalled), `resetDemo`. After any mutation: recompute + **broadcast a full state
-snapshot** `{ hearings, auditLog, serverTime }` to all clients.
+`reopen` (→ recalled), `requestAction` (attendee files an adjournment/withdrawal request),
+`resolveRequest` (officer grants/denies — a grant closes the hearing with disposition
+"Adjourned"/"Withdrawn"), `resetDemo`. After any mutation: recompute + **broadcast a full state
+snapshot** `{ hearings, auditLog, predictions, evidence, serverTime }` to all clients.
 
 ### Socket.io events (Conference signaling — WebRTC mesh)
 Rooms named `conf:<hearingId>`:

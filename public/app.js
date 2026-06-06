@@ -152,6 +152,9 @@
     },
     reopen: (hearingId) => socket.emit('reopen', { hearingId }),
     reassign: (hearingId, newOfficerId) => socket.emit('reassign', { hearingId, newOfficerId }),
+    reqAdj: (hearingId) => { const r = prompt(t('req.adjReason'), ''); if (r !== null) socket.emit('requestAction', { hearingId, userId: session.sub, type: 'adjournment', reason: r }); },
+    reqWdr: (hearingId) => { const r = prompt(t('req.wdrReason'), ''); if (r !== null) socket.emit('requestAction', { hearingId, userId: session.sub, type: 'withdrawal', reason: r }); },
+    resolveReq: (hearingId, requestId, decision) => socket.emit('resolveRequest', { hearingId, requestId, decision }),
   };
 
   /* -------------------- Filtering / sorting -------------------- */
@@ -284,7 +287,9 @@
           ${waitChip(h)}
         </div>
         ${myControls}
+        ${mine && !isOfficer ? renderAttendeeRequests(h, mine) : ''}
         ${officerControls}
+        ${isOfficer ? renderOfficerRequests(h) : ''}
         ${isOfficer ? renderSummary(h) : ''}
         <div class="card-participants">${participantsHtml}</div>
         ${renderEvidence(h, (!!mine || isOfficer))}
@@ -369,6 +374,40 @@
       ${!closed ? reassign : ''}
       ${hint}
     </div>`;
+  }
+
+  function renderAttendeeRequests(h, mine) {
+    const canAdj = ['appellant', 'appellant_rep', 'agency_rep'].includes(mine.role);
+    const canWdr = ['appellant', 'appellant_rep'].includes(mine.role);
+    if (!canAdj && !canWdr) return '';
+    const open = h.status !== 'closed';
+    const myReqs = (h.requests || []).filter((r) => r.by.userId === mine.userId);
+    const btns = open ? `
+      <div class="req-actions">
+        ${canAdj ? `<button class="btn btn-ghost btn-sm" data-act="reqadj" data-h="${h.id}"><nys-icon name="calendar_month" size="xs"></nys-icon> ${t('req.adjourn')}</button>` : ''}
+        ${canWdr ? `<button class="btn btn-ghost btn-sm" data-act="reqwdr" data-h="${h.id}"><nys-icon name="cancel" size="xs"></nys-icon> ${t('req.withdraw')}</button>` : ''}
+      </div>` : '';
+    const statuses = myReqs.map((r) =>
+      `<div class="req-status req-${r.status}">${t('reqtype.' + r.type)}: <b>${t('reqstatus.' + r.status)}</b></div>`).join('');
+    if (!btns && !statuses) return '';
+    return `<div class="requests">${btns}${statuses}</div>`;
+  }
+
+  function renderOfficerRequests(h) {
+    const pending = (h.requests || []).filter((r) => r.status === 'pending');
+    if (!pending.length) return '';
+    return `
+      <div class="officer-requests">
+        <div class="or-title"><nys-icon name="notifications" size="sm"></nys-icon> ${t('req.pendingTitle')}</div>
+        ${pending.map((r) => `
+          <div class="or-item">
+            <div class="or-info"><b>${t('reqtype.' + r.type)}</b> — ${t('req.by')} ${r.by.name} (${roleLabel(r.by.role)})${r.reason ? `<div class="or-reason">“${r.reason}”</div>` : ''}</div>
+            <div class="or-btns">
+              <button class="btn btn-primary btn-xs" data-act="reqgrant" data-h="${h.id}" data-r="${r.id}">${t('req.grant')}</button>
+              <button class="btn btn-danger btn-xs" data-act="reqdeny" data-h="${h.id}" data-r="${r.id}">${t('req.deny')}</button>
+            </div>
+          </div>`).join('')}
+      </div>`;
   }
 
   function renderEvidence(h, canUpload) {
@@ -456,7 +495,7 @@
           <td>${checkedIn}/${h.participants.length}</td>
           <td>${evidenceFor(h).length || '—'}</td>
           <td>${wait}</td>
-          <td>${h.summary ? '<nys-icon name="edit_square" size="sm" title="Summary available"></nys-icon> ' : ''}${h.disposition || '—'}</td>
+          <td>${(() => { const pr = (h.requests || []).find((r) => r.status === 'pending'); return pr ? `<span class="req-flag">⏳ ${t('reqtype.' + pr.type)} ${t('req.requested')}</span> ` : ''; })()}${h.summary ? '<nys-icon name="edit_square" size="sm" title="Summary available"></nys-icon> ' : ''}${h.disposition || '—'}</td>
         </tr>`;
     }).join('');
 
@@ -525,6 +564,14 @@
         el.onclick = () => act.close(el.dataset.h);
       } else if (a === 'reopen') {
         el.onclick = () => act.reopen(el.dataset.h);
+      } else if (a === 'reqadj') {
+        el.onclick = () => act.reqAdj(el.dataset.h);
+      } else if (a === 'reqwdr') {
+        el.onclick = () => act.reqWdr(el.dataset.h);
+      } else if (a === 'reqgrant') {
+        el.onclick = () => act.resolveReq(el.dataset.h, el.dataset.r, 'granted');
+      } else if (a === 'reqdeny') {
+        el.onclick = () => act.resolveReq(el.dataset.h, el.dataset.r, 'denied');
       } else if (a === 'joinconf') {
         el.onclick = () => window.VWRConf.join(el.dataset.h, el.dataset.hn, el.dataset.host === '1');
       } else if (a === 'refreshrec') {

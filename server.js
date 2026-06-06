@@ -87,6 +87,7 @@ const STICKY = new Set([WR_STATUS.CALLED, WR_STATUS.RECALLED, WR_STATUS.CLOSED])
 let hearings = [];           // the live working set for "today"
 const auditLog = [];         // spec §11 — auditing
 let nextEventId = 1;
+let nextReqId = 1;           // adjournment/withdrawal request ids
 
 function audit(action, detail, actor) {
   auditLog.unshift({
@@ -122,6 +123,7 @@ function seedData() {
     conferenceUrl: null,
     transcript: [],          // [{ from, role, text, ts }] — from live captions
     summary: null,           // AI/extractive hearing summary
+    requests: [],            // adjournment / withdrawal requests from attendees
     calledAt: null, startedAt: null, closedAt: null, // for wait-time prediction
     participants: p.participants.map((pp) => ({
       userId: pp.userId,
@@ -827,6 +829,44 @@ io.on('connection', (socket) => {
     h.disposition = null;
     audit('REOPEN', `${h.hearingNumber} recalled after close`, actor());
     pushToIES(h, 'hearing reopened/recalled');
+    broadcast();
+  });
+
+  // --- Attendee: request an adjournment (postpone) or withdrawal (drop appeal) ---
+  socket.on('requestAction', ({ hearingId, userId, type, reason }) => {
+    const h = findHearing(hearingId);
+    const p = findParticipant(h, userId);
+    if (!h || !p || h.status === WR_STATUS.CLOSED) return;
+    if (type !== 'adjournment' && type !== 'withdrawal') return;
+    const req = {
+      id: 'R' + (nextReqId++), type,
+      by: { userId: p.userId, name: p.name, role: p.role },
+      reason: String(reason || '').slice(0, 300),
+      status: 'pending', ts: new Date().toISOString(),
+    };
+    h.requests.push(req);
+    audit('REQUEST', `${p.name} requested ${type}${req.reason ? ': ' + req.reason : ''} — ${h.hearingNumber}`, actor());
+    pushToIES(h, `${type} requested`);
+    broadcast();
+  });
+
+  // --- Hearing Officer: grant or deny a request ---
+  socket.on('resolveRequest', ({ hearingId, requestId, decision }) => {
+    const h = findHearing(hearingId);
+    if (!h) return;
+    const req = (h.requests || []).find((r) => r.id === requestId);
+    if (!req || req.status !== 'pending') return;
+    req.status = decision === 'granted' ? 'granted' : 'denied';
+    req.decidedTs = new Date().toISOString();
+    req.decidedBy = actor();
+    if (req.status === 'granted') {
+      h.status = WR_STATUS.CLOSED;
+      h.disposition = req.type === 'adjournment' ? 'Adjourned' : 'Withdrawn';
+      h.closedAt = new Date().toISOString();
+      h.conferenceUrl = null;
+    }
+    audit(`REQUEST_${req.status.toUpperCase()}`, `${req.type} ${req.status} for ${h.hearingNumber}`, actor());
+    pushToIES(h, `${req.type} ${req.status}`);
     broadcast();
   });
 

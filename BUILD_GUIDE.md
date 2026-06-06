@@ -83,6 +83,10 @@ CLAUDE.md               # guidance for Claude Code instances
 - **Recording** is host-side: the Hearing Officer's browser composites all tiles to a canvas,
   mixes audio, records with `MediaRecorder`, then downloads the `.webm` and uploads it to the
   server (`POST /api/recordings/:hearingId`).
+- **Adjournment / withdrawal requests:** attendees emit `requestAction` (type adjournment|withdrawal
+  + reason); the officer emits `resolveRequest` (granted|denied). A granted request closes the
+  hearing with disposition "Adjourned"/"Withdrawn". Requests live on `hearing.requests` (in the
+  state snapshot), shown on cards + flagged in the supervisor table.
 - **Evidence upload:** participants attach documents via `POST /api/evidence/:hearingId` (raw
   body, metadata in query; allow-listed extensions, 25 MB cap). Files go to `evidence/` with a
   JSON index; the list flows into the state snapshot so cards update live. `GET /api/evidence/:hearingId` lists them.

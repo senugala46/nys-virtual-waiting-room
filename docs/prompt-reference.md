@@ -191,8 +191,10 @@ participant** is checked in → `not_checked_in`; else if **at least one** parti
 guard; emit a `toast` error if violated), `deny`, `startHearing` (set a `conferenceUrl`,
 flip ready→called), `reassign` (set `assignedOfficerId`, **remove the previous officer** from
 participants, add the new one), `closeHearing` (set disposition, clear conferenceUrl),
-`reopen` (→ recalled), `resetDemo`. After any mutation: recompute + **broadcast a full state
-snapshot** `{ hearings, auditLog, serverTime }` to all clients.
+`reopen` (→ recalled), `requestAction` (attendee files an adjournment/withdrawal request),
+`resolveRequest` (officer grants/denies — a grant closes the hearing with disposition
+"Adjourned"/"Withdrawn"), `resetDemo`. After any mutation: recompute + **broadcast a full state
+snapshot** `{ hearings, auditLog, predictions, evidence, serverTime }` to all clients.
 
 ### Socket.io events (Conference signaling — WebRTC mesh)
 Rooms named `conf:<hearingId>`:

@@ -20,6 +20,9 @@
   --radius: var(--nys-radius-lg, 8px);
   --shadow: 0 1px 3px rgba(16,32,55,.10), 0 4px 16px rgba(16,32,55,.06);
   font-family: var(--nys-font-family-sans, "Proxima Nova", "Segoe UI", system-ui, -apple-system, Roboto, Helvetica, Arial, sans-serif);
+  /* Base size for all NYSDS icons (inherits into component shadow DOM). Bumped up
+     because the default (~1cap) renders icons too small. */
+  --nys-icon-size: 1.25em;
 }
 
 body { font-family: var(--nys-font-family-sans, "Segoe UI", system-ui, sans-serif); }
@@ -214,6 +217,22 @@ nys-globalheader { display: block; width: 100%; }
 .dot-gray { background: #c2cad3; }
 .limited-note { color: var(--muted); font-style: italic; font-size: .82rem; }
 
+/* Adjournment / withdrawal requests */
+.requests { display: flex; flex-direction: column; gap: 6px; padding: 6px 0; }
+.req-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+.req-status { font-size: .78rem; color: var(--muted); }
+.req-status.req-granted { color: var(--green); }
+.req-status.req-denied { color: var(--red); }
+.req-status.req-pending { color: var(--amber); }
+.officer-requests { border: 1px solid var(--nys-color-warning-weak, #fefae5); background: #fffdf5; border-radius: 8px; padding: 8px 10px; margin: 8px 0; }
+.or-title { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: .8rem; color: var(--amber); margin-bottom: 6px; }
+.or-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 5px 0; border-top: 1px solid var(--line); }
+.or-item:first-of-type { border-top: none; }
+.or-info { font-size: .82rem; }
+.or-reason { font-size: .76rem; color: var(--muted); font-style: italic; }
+.or-btns { display: flex; gap: 6px; flex-shrink: 0; }
+.req-flag { color: var(--amber); font-weight: 600; font-size: .76rem; }
+
 /* Evidence / documents on the hearing card */
 .evidence { border-top: 1px dashed var(--line); padding-top: 8px; }
 .ev-head { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: .78rem; text-transform: uppercase; letter-spacing: .4px; color: var(--muted); margin-bottom: 6px; }
@@ -395,9 +414,9 @@ body.conf-open { overflow: hidden; }
 .cbtn .cic { width: 24px; height: 24px; }
 #c-rec .cic { color: #ff5c5c; }            /* record dot always red */
 .tbadge { display: inline-flex; align-items: center; gap: 4px; }
-.tbadge .cic { width: 16px; height: 16px; }
+.tbadge .cic { width: 20px; height: 20px; }
 .thbtn { display: inline-flex; align-items: center; gap: 4px; }
-.thbtn .cic { width: 14px; height: 14px; }
+.thbtn .cic { width: 16px; height: 16px; }
 .cbtn:hover { background: #2d333b; }
 .cbtn.off { background: #5a2222; }            /* mic/cam disabled */
 .cbtn.active { background: var(--nys-blue-lt); }  /* share/record active */

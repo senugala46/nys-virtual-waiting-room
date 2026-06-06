@@ -31,6 +31,9 @@ captions, and recording features.
   (`not_checked_in → not_ready → ready → called → recalled → closed`).
 - **In-house video conferencing** (WebRTC mesh) — mute, camera, screen share, chat, host
   mute/remove. No third-party meeting vendor.
+- **Adjournment & withdrawal requests** — attendees can request to postpone (adjourn) or drop
+  (withdraw) their appeal; the Hearing Officer grants/denies, and a grant closes the hearing with
+  the matching disposition.
 - **Evidence upload** — participants attach documents (PDF/images/Office/text) to their hearing;
   files are stored server-side and listed on the hearing card (with a count in the supervisor table).
 - **Recording** — the host records a composite of all tiles + mixed audio; the file downloads
@@ -78,6 +81,7 @@ captions, and recording features.
 | In-house video conferencing (replaces WebEx/CMR) | `conference.js` (WebRTC) + `conf:*` signaling |
 | Hearing recording | host capture in `conference.js` + `/api/recordings` |
 | Evidence/document upload | `/api/evidence/:hearingId` + evidence section on the card |
+| Adjournment / withdrawal requests | `requestAction` / `resolveRequest` socket events + card UI |
 | AI: captions, translation, summaries, wait-times | `conference.js`, `ai.js`, `computePredictions()` |
 | Multilingual UI (12 languages + English, RTL) | `i18n.js` + globe selector |
 | NYS open-data analytics (data.ny.gov) | `/api/opendata/snap` + Supervisor panel; CSV snapshot in `data/` |
