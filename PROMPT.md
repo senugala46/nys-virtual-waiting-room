@@ -1247,8 +1247,8 @@ nys-skipnav { position: relative; z-index: 1000; }
 .brand-sub { font-size: .72rem; opacity: .8; }
 .topbar-status { display: flex; align-items: center; gap: 14px; }
 
-/* Global language selector (globe), fixed top-left */
-.lang-widget { position: fixed; top: 10px; left: 14px; z-index: 500; }
+/* Global language selector (globe), fixed top-right */
+.lang-widget { position: fixed; top: 10px; right: 14px; left: auto; z-index: 500; }
 .lang-btn {
   display: inline-flex; align-items: center; gap: 6px; cursor: pointer; font: inherit; font-size: .85rem; font-weight: 600;
   background: rgba(255,255,255,.16); color: #fff; border: 1px solid rgba(255,255,255,.45);
@@ -1257,16 +1257,17 @@ nys-skipnav { position: relative; z-index: 1000; }
 .lang-btn:hover { background: rgba(255,255,255,.28); }
 .lang-btn:focus-visible { outline: 3px solid var(--nys-gold); outline-offset: 2px; }
 .lang-menu {
-  position: absolute; top: calc(100% + 6px); left: 0; margin: 0; padding: 6px; list-style: none;
+  position: absolute; top: calc(100% + 6px); right: 0; left: auto; margin: 0; padding: 6px; list-style: none;
   background: #fff; color: var(--ink); border: 1px solid var(--line); border-radius: 12px;
   box-shadow: 0 8px 28px rgba(16,32,55,.22); min-width: 210px; max-height: 70vh; overflow: auto;
 }
 .lang-menu.hidden { display: none; }
-.lang-menu li { padding: 9px 14px; border-radius: 8px; cursor: pointer; font-size: .92rem; white-space: nowrap; }
+/* Always left-align menu items (incl. Arabic/Urdu native names) */
+.lang-menu li { padding: 9px 14px; border-radius: 8px; cursor: pointer; font-size: .92rem; white-space: nowrap; text-align: left; direction: ltr; }
 .lang-menu li:hover { background: var(--nys-color-theme-weaker, #eff6fb); }
 .lang-menu li[aria-checked="true"] { background: var(--nys-color-theme-weak, #cddde9); color: var(--nys-blue); font-weight: 700; }
 
-/* On the white toolbar/app the globe still sits over the blue header, so keep it light. */
+/* Keep the globe pinned top-right even when the page is RTL */
 [dir="rtl"] .lang-widget { left: auto; right: 14px; }
 [dir="rtl"] .lang-menu { left: auto; right: 0; }
 
@@ -2013,7 +2014,7 @@ body.conf-open { overflow: hidden; }
     if (!btn || !menu) return;
     const cur = () => window.VWRi18n.getLang();
     menu.innerHTML = window.VWRi18n.LANGS.map((l) =>
-      `<li role="menuitemradio" data-lang="${l.code}" lang="${l.code}" dir="${l.dir}" aria-checked="${l.code === cur()}" tabindex="0">${l.name}</li>`
+      `<li role="menuitemradio" data-lang="${l.code}" lang="${l.code}" aria-checked="${l.code === cur()}" tabindex="0">${l.name}</li>`
     ).join('');
     updateLangCurrent();
 

@@ -67,7 +67,7 @@
     if (!btn || !menu) return;
     const cur = () => window.VWRi18n.getLang();
     menu.innerHTML = window.VWRi18n.LANGS.map((l) =>
-      `<li role="menuitemradio" data-lang="${l.code}" lang="${l.code}" dir="${l.dir}" aria-checked="${l.code === cur()}" tabindex="0">${l.name}</li>`
+      `<li role="menuitemradio" data-lang="${l.code}" lang="${l.code}" aria-checked="${l.code === cur()}" tabindex="0">${l.name}</li>`
     ).join('');
     updateLangCurrent();
 
