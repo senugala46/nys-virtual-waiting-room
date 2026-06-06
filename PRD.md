@@ -256,10 +256,11 @@ production (tracked in §12/§13).
 - **Phase 1 — Productionize & integrate:** real ITS IAM SSO, live IES read/write, scheduling
   sync, database persistence, server-enforced authorization.
 - **Phase 2 — Scale & record:** TURN + SFU, server-side recording to NYS storage, HA, load testing.
-- **Phase 3 — AI augmentation (prototype delivered):** live captions/transcription, interpreter
-  translation assist, hearing summaries, and predictive wait-times are built (FR-AI-1…4).
-  Remaining: production-grade STT/MT/LLM hosting, accuracy tuning, and legal-record handling
-  (FR-AI-5).
+- **Phase 3 — AI hardening:** the four AI features (live captions/transcription, interpreter
+  translation assist, hearing summaries, predictive wait-times — FR-AI-1…4) are **built** and
+  listed under delivered features (§7.11). This phase covers only the remaining production work
+  (FR-AI-5): production-grade STT/MT/LLM hosting, accuracy tuning & evaluation, legal-record
+  handling for AI output, and professional language-access translations.
 - **Phase 4 — Expand & optimize:** notifications (SMS/email), mobile apps, multilingual UI,
   analytics/docket optimization, additional hearing types.
 - **Cross-cutting (all phases):** security & compliance, WCAG 2.2 AA, 24/7 operations.

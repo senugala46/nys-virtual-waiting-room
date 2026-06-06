@@ -155,10 +155,9 @@ Est. wait column.]*
 - Add a TURN server (cross-network reliability) and an SFU for large hearings; server-side
   recording to NYS storage; high-availability deployment; load & performance testing.
 
-**Phase 3 — AI-Augment (prototype delivered)**
-- Live captions/transcription, interpreter translation assist, automated hearing summaries, and
-  predictive wait-times are **built**. Next: production-grade accuracy, hosting, and legal-record
-  handling for AI output.
+**Phase 3 — AI Hardening** *(the four AI features are already built — see §5 AI Involvement)*
+- Remaining production work only: production-grade STT/MT/LLM hosting, accuracy tuning &
+  evaluation, legal-record handling for AI output, and professional language-access translations.
 
 **Phase 4 — Expand & Optimize**
 - SMS/email notifications to appellants, native mobile apps, multilingual UI, analytics &
