@@ -79,18 +79,18 @@ box(s, 0.6, 1.6, 6.0, 0.6, 'Virtual Waiting Room', { fill:NAVY, line:NAVY, color
 bullets(s, 0.8, 2.35, 5.7, 4.4, [
   'Role-based access for 9 hearing roles (SSO-driven).',
   'Live check-in, availability & presence tracking.',
-  'Readiness state machine — hearing unlocks only when all required parties are ready.',
-  'Judge controls: call/recall, deny, start, reassign, close + disposition.',
-  'Supervisor oversight dashboard: search, sort, filter, live statuses.',
-  'Operational reporting + full audit log.',
+  'Readiness state machine gates when a hearing can start.',
+  'Judge controls: call/recall, deny, start, reassign, close.',
+  'Supervisor oversight: search, sort, filter, live statuses, recordings.',
+  'Reporting, audit log, and a multilingual UI (12 languages + English, RTL).',
 ], { fontSize:13 });
-box(s, 6.8, 1.6, 6.0, 0.6, 'In-house Video Conferencing', { fill:GREEN, line:GREEN, color:WHITE, bold:true, fontSize:15 });
+box(s, 6.8, 1.6, 6.0, 0.6, 'In-house Video + AI', { fill:GREEN, line:GREEN, color:WHITE, bold:true, fontSize:15 });
 bullets(s, 7.0, 2.35, 5.7, 4.4, [
   'Peer-to-peer WebRTC — built by us, no third-party vendor.',
-  'Multi-party video + audio (full mesh).',
-  'Mute, camera toggle, screen share, in-hearing chat.',
+  'Multi-party video, mute, camera, screen share, chat.',
   'Host (judge) controls: mute or remove a participant.',
-  'Recording indicator / presence capture.',
+  'Live captions + interpreter translation; AI hearing summaries.',
+  'Recording saved server-side (playback in supervisor view).',
   'Replaces Cisco WebEx/CMR with NYS-hosted video.',
 ], { fontSize:13 });
 
@@ -180,7 +180,7 @@ st(10.5,'Closed', GREY);
 [2.65,5.15,7.65,10.15].forEach(x=>arrow(s,x,2.48,x+0.35,2.48,{color:NAVY,width:2}));
 const cap=(x,t)=>s.addText(t,{x,y:3.0,w:2.5,h:0.6,align:'center',color:GREY,fontSize:9,fontFace:FONT});
 cap(0.35,'appellant / rep\nchecks in');
-cap(2.85,'all required parties\nAvailable');
+cap(2.85,'participant(s)\nAvailable');
 cap(5.35,'Judge: Call');
 cap(7.85,'Judge: Close\n(+ disposition)');
 // recalled loop
@@ -211,7 +211,7 @@ s.addText('Once connected, audio/video flow directly peer-to-peer (no server in 
   { x:0.5, y:3.0, w:12.3, h:0.4, color:GREEN, fontSize:11, italic:true, fontFace:FONT });
 // feature chips
 s.addText('Features delivered:', { x:0.5, y:3.7, w:6, h:0.4, color:NAVY, bold:true, fontSize:14, fontFace:FONT });
-const chips=['Multi-party video + audio','Mute / unmute','Camera on/off','Screen share','In-hearing chat','Live roster','Host: mute participant','Host: remove participant','Recording indicator','Graceful media fallback'];
+const chips=['Multi-party video + audio','Mute / unmute','Camera on/off','Screen share','In-hearing chat','Live captions','Interpreter translation','Host: mute / remove','Recording (saved)','AI hearing summary'];
 chips.forEach((c,i)=>{ const col=i%5, row=Math.floor(i/5); box(s, 0.5+col*2.55, 4.2+row*0.8, 2.4, 0.6, c, {fill:LIGHT,line:LINE,color:INK,fontSize:10}); });
 box(s,0.5,6.1,12.3,0.7,'Mesh suits hearing-sized rooms (≤ ~8). Scale path: add TURN for NAT traversal + an SFU for large rooms.',{fill:'F7FAFD',line:NAVY,color:NAVY,fontSize:11});
 
@@ -251,9 +251,9 @@ header(s, 'NYS Design System & Accessibility', 'On-brand, on-standard, and built
 bullets(s, 0.6, 1.7, 6.0, 5, [
   'Built on the official NYS Design System (NYSDS): @nysds/styles + @nysds/components.',
   'State-blue theme, NYS gold accent, Proxima Nova type — all via design tokens.',
-  'Real components: nys-unavheader, nys-button, nys-icon, nys-badge, nys-skipnav.',
-  '508 / WCAG: skip nav, visible focus, contrast, semantic landmarks.',
-  'Responsive — multi-device usage (desktop, tablet, phone).',
+  'Real components: nys-globalheader, nys-button, nys-icon, nys-badge.',
+  'Multilingual UI — NYS 12-language set + English, with RTL (Arabic / Urdu / Yiddish).',
+  '508 / WCAG: visible focus, contrast, semantic landmarks, responsive multi-device.',
   'AV icons (mic/camera/etc.) inlined in the same Material family, since NYSDS omits them.',
 ], { fontSize:14 });
 box(s, 7.0, 1.8, 5.7, 0.6, 'Color tokens', { fill:NAVY, line:NAVY, color:WHITE, bold:true, fontSize:13 });
@@ -266,7 +266,7 @@ sw(7.0,AMBER,'Warning\n#B29200'); s.addShape(S.rect,{x:7.0,y:3.45,w:0,h:0,line:{
 box(s,7.0,3.5,1.85,0.8,'Warning\n#B29200',{fill:AMBER,line:AMBER,color:WHITE,fontSize:10,bold:true});
 box(s,8.95,3.5,1.85,0.8,'Danger\n#D22730',{fill:RED,line:RED,color:WHITE,fontSize:10,bold:true});
 box(s,10.9,3.5,1.85,0.8,'Surface\n#FFFFFF',{fill:WHITE,line:LINE,color:INK,fontSize:10,bold:true});
-box(s,7.0,4.7,5.75,1.7,'9 roles · 6-state status machine · live multi-tab sync · audit log · reporting — all delivered in a single, dependency-light app.',{fill:'F7FAFD',line:NAVY,color:NAVY,fontSize:13});
+box(s,7.0,4.7,5.75,1.7,'9 roles · 6-state status machine · live multi-tab sync · in-house video + recording · AI captions/translation/summaries · 13-language UI · audit + reporting — one dependency-light app.',{fill:'F7FAFD',line:NAVY,color:NAVY,fontSize:12});
 
 /* ============================================================ 10. IMPACT */
 s = pptx.addSlide();
